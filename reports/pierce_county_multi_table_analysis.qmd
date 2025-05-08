@@ -1,5 +1,312 @@
 ---
-title: "pierce_county_multi_table_analysis"
-format: html
+title: "Pierce County Property Analysis: Data Loading"
+subtitle: "Step 1: Acquiring and Loading Raw Data"
+author: "Your Group Name"
+date: "today"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo 
+    code-fold: true
+    code-summary: "Show/Hide Code"
+    df-print: kable # For nice table printing with knitr::kable
+editor: source
+execute:
+  echo: true
+  warning: false   # Suppress warnings globally for now
+  message: false   # Suppress messages globally for now
+  error: true      # Display errors if they occur
 ---
 
+# 1. Introduction
+
+This document outlines the first step in our analysis of Pierce County property data: loading all raw data files into a DuckDB in-memory database. Each text file will be loaded into its own table with column names derived from the provided metadata (PDFs). All columns will initially be loaded as `VARCHAR` (text) to ensure robust loading; type conversions will occur during the subsequent cleaning phase.
+
+# 2. Setup and Configuration
+
+## 2.1. Load Libraries and Functions
+
+First, we load necessary R packages and our custom data loading function.
+
+```{r setup-load-libs-funcs}
+#| label: setup-load-libs-funcs
+
+# Ensure these packages are installed: install.packages(c("DBI", "duckdb", "knitr", "dplyr"))
+library(DBI)
+library(duckdb)
+library(knitr) # For kable()
+library(dplyr) # For glimpse() later
+
+# Source our custom data loading function
+# The path is relative to the Quarto document's location (reports/)
+source("../R/00_load_data_functions.R")
+
+```
+
+## 2.2. Define File Paths and Column Names
+
+Here, we define the locations of our raw data files and the column names for each table. IMPORTANT: You MUST verify and complete the col_names_lists with the correct column names in the correct order for EACH of your files based on your metadata PDFs.
+
+```{r}
+#| label: setup-file-configs
+
+# Base path to the directory where the raw .txt files are stored
+# This path is relative to the project root, assuming the .Rproj is in the root.
+# If running the .qmd directly, ensure this path correctly points to your data/raw folder.
+# For Quarto rendering, it's often best to assume the project root is the working directory.
+# Let's construct paths assuming the Quarto doc is in 'reports/' and data is in 'data/raw/'
+# relative to a common project root.
+project_root_relative_data_path <- "../data/raw/" # Path from 'reports/' dir to 'data/raw/'
+
+file_paths_list <- list(
+  sale = paste0(project_root_relative_data_path, "sale.txt"),
+  appraisal_account = paste0(project_root_relative_data_path, "appraisal_account.txt"),
+  improvement = paste0(project_root_relative_data_path, "improvement.txt"),
+  improvement_detail = paste0(project_root_relative_data_path, "improvement_detail.txt"),
+  improvement_builtas = paste0(project_root_relative_data_path, "improvement_builtas.txt"),
+  land_attribute = paste0(project_root_relative_data_path, "land_attribute.txt"),
+  seg_merge = paste0(project_root_relative_data_path, "seg_merge.txt"),
+  tax_account = paste0(project_root_relative_data_path, "tax_account.txt"),
+  tax_description = paste0(project_root_relative_data_path, "tax_description.txt")
+)
+
+# --- COLUMN NAMES ---
+# !!! ACTION REQUIRED: Populate these lists accurately for EACH file !!!
+# The order of names MUST match the order of columns in your .txt files.
+# These are placeholders. Refer to your PDF metadata.
+col_names_lists <- list(
+  sale = c(
+    "ETN", "Parcel_Count", "Parcel_Number", "Sale_Date_Raw", "Sale_Price_Raw", 
+    "Deed_Type", "Grantor", "Grantee", "Valid_Invalid_Raw", 
+    "Confirmed_Uncomfirmed_Raw", # Note: "Uncomfirmed" as per PDF
+    "Exclude_Reason", "Improved_Vacant_Raw", "Appraisal_Account_Type"
+  ), 
+  
+  appraisal_account = c(
+    "Parcel_Number", "Appraisal_Account_Type", "Business_Name", "Value_Area_ID", 
+    "Land_Economic_Area", "Buildings", "Group_Account_Number", 
+    "Land_Gross_Acres_Raw", "Land_Net_Acres_Raw", "Land_Gross_Square_Feet_Raw", 
+    "Land_Net_Square_Feet_Raw", "Land_Gross_Front_Feet_Raw", "Land_Width_Raw", 
+    "Land_Depth_Raw", "Submerged_Area_Square_Feet_Raw", "Appraisal_Date_Raw", 
+    "Waterfront_Type", "View_Quality", "Utility_Electric", "Utility_Sewer", 
+    "Utility_Water", "Street_Type", "Latitude_Raw", "Longitude_Raw"
+  ), 
+  
+  improvement = c(
+    "Parcel_Number", "Building_ID", "Property_Type", "Neighborhood", 
+    "Neighborhood_Extension", "Square_Feet_Raw", "Net_Square_Feet_Raw", 
+    "Percent_Complete_Raw", "Condition", "Quality", "Primary_Occupancy_Code_Raw", 
+    "Primary_Occupancy_Description", "Mobile_Home_Serial_Number", 
+    "Mobile_Home_Total_Length_Raw", "Mobile_Home_Make", 
+    "Attic_Finished_Square_Feet_Raw", "Basement_Square_Feet_Raw", 
+    "Basement_Finished_Square_Feet_Raw", "Carport_Square_Feet_Raw", 
+    "Balcony_Square_Feet_Raw", "Porch_Square_Feet_Raw", 
+    "Attached_Garage_Square_Feet_Raw", "Detached_Garage_Square_Feet_Raw", 
+    "Fireplaces_Raw", "Basement_Garage_Door_Raw"
+  ),
+                 
+  improvement_detail = c(
+    "Parcel_Number", "Building_ID", "Detail_Type", "Detail_Description", "Units_Raw"
+  ),
+                        
+  improvement_builtas = c(
+    "Parcel_Number", "Building_ID", "Built_As_Number_Raw", "Built_As_ID_Raw", 
+    "Built_As_Description", "Built_As_Square_Feet_Raw", "HVAC_Code_Raw", 
+    "HVAC_Description", "Exterior", "Interior", "Stories_Raw", "Story_Height_Raw", 
+    "Sprinkler_Square_Feet_Raw", "Roof_Cover", "Bedrooms_Raw", "Bathrooms_Raw", 
+    "Units_Count_Raw", "Class_Code", "Class_Description", "Year_Built_Raw", 
+    "Year_Remodeled_Raw", "Adjusted_Year_Built_Raw", "Physical_Age_Raw", 
+    "Built_As_Length_Raw", "Built_As_Width_Raw", "Mobile_Home_Model"
+  ),
+                         
+  land_attribute = c(
+    "Parcel_Number", "Attribute_Key", "Attribute_Description"
+  ), 
+                    
+  seg_merge = c(
+    "Seg_Merge_Number", "Parent_Child_Indicator", "Parcel_Number", 
+    "Continued_Indicator", "Completed_Date_Raw", "Tax_Year_Raw"
+  ), 
+               
+  tax_account = c(
+    "Parcel_Number", "Account_Type", "Property_Type", "Site_Address", 
+    "Use_Code", "Use_Description", "Tax_Year_Prior_Raw", 
+    "Tax_Code_Area_Prior_Year", "Exemption_Type_Prior_Year", 
+    "Current_Use_Code_Prior_Year", "Land_Value_Prior_Year_Raw", 
+    "Improvement_Value_Prior_Year_Raw", "Total_Market_Value_Prior_Year_Raw", 
+    "Taxable_Value_Prior_Year_Raw", "Tax_Year_Current_Raw", 
+    "Tax_Code_Area_Current_Year", "Exemption_Type_Current_Year", 
+    "Current_Use_Code_Current_Year", "Land_Value_Current_Year_Raw", 
+    "Improvement_Value_Current_Year_Raw", "Total_Market_Value_Current_Year_Raw", 
+    "Taxable_Value_Current_Year_Raw", "Range", "Township", "Section", 
+    "Quarter_Section", "Subdivision_Name", "Located_On_Parcel"
+  ), 
+                 
+  tax_description = c(
+    "Parcel_Number", "Line_Number_Raw", "Tax_Description_Line"
+  )
+)
+
+# Verify all files have column name definitions (basic check)
+if (!all(names(file_paths_list) %in% names(col_names_lists))) {
+  stop("Mismatch between file_paths_list and col_names_lists. Ensure every file has a corresponding column name definition.")
+}
+if (!all(names(col_names_lists) %in% names(file_paths_list))) {
+  stop("Mismatch between col_names_lists and file_paths_list. Ensure every column name definition has a corresponding file.")
+}
+```
+
+## 2.3. Initialize DuckDB Connection
+
+We'll use an in-memory DuckDB database for this session.
+
+```{r}
+#| label: setup-duckdb-connection
+
+con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+cat("DuckDB in-memory connection established.\n")
+```
+
+# 3. Load Raw Data into DuckDB
+
+Now, we iterate through our configured files and load each one into a separate table in DuckDB using our custom function.
+
+```{r}
+#| label: load-data-to-duckdb
+#| results: 'asis' # Allows cat() HTML output to render directly
+
+cat("### Starting Data Loading Process:\n\n")
+
+loaded_successfully <- c() # To track which tables loaded
+
+for (table_key in names(file_paths_list)) {
+  file_path <- file_paths_list[[table_key]]
+  col_names <- col_names_lists[[table_key]]
+  target_table_name <- paste0(table_key, "_raw_duckdb") # e.g., "sale_raw_duckdb"
+  
+  cat(paste0("Attempting to load: ", basename(file_path), " into table `", target_table_name, "`...\n"))
+  
+  if (is.null(col_names) || length(col_names) == 0) {
+      cat(paste0("<p style='color:red;'><strong>Error:</strong> Column names for '", table_key, "' are not defined or empty. Skipping.</p>\n\n"))
+      loaded_successfully[target_table_name] <- FALSE
+      next
+  }
+  
+  success <- load_pipe_delimited_file_to_duckdb(
+    con = con,
+    file_path = file_path,
+    col_names_vector = col_names,
+    target_table_name = target_table_name
+  )
+  loaded_successfully[target_table_name] <- success
+}
+
+cat("\n### Data Loading Process Complete.\n")
+
+# Summary of loading
+cat("\n#### Loading Summary:\n")
+for(tbl_name in names(loaded_successfully)){
+    status_msg <- if(loaded_successfully[tbl_name]) "Successfully loaded" else "Failed to load or file not found"
+    cat(paste0("- `", tbl_name, "`: ", status_msg, "\n"))
+}
+```
+
+# 4. Preliminary Data Inspection
+
+Let's list the tables in our DuckDB database and look at the first few rows and structure of each loaded table to verify the loading process.
+
+```{r}
+#| label: inspect-loaded-tables
+#| results: 'asis'
+
+cat("\n### Tables in DuckDB:\n")
+loaded_tables_in_db <- DBI::dbListTables(con)
+if (length(loaded_tables_in_db) > 0) {
+  kable(loaded_tables_in_db, col.names = "Table Name", caption = "Tables present in DuckDB") %>% print()
+} else {
+  cat("No tables found in DuckDB. Please check loading logs.\n")
+}
+
+
+cat("\n\n### Preview of Loaded Tables (First 3 Rows and Structure):\n")
+for (table_name_raw in loaded_tables_in_db) {
+  # Only preview tables we attempted to load based on our naming convention
+  if (grepl("_raw_duckdb$", table_name_raw) && isTRUE(loaded_successfully[table_name_raw])) {
+    cat(paste0("\n#### Table: `", table_name_raw, "`\n"))
+    
+    # Get column count from DB
+    db_cols <- DBI::dbListFields(con, table_name_raw)
+    num_db_cols <- length(db_cols)
+    
+    # Get defined column count
+    original_key <- sub("_raw_duckdb$", "", table_name_raw) # e.g. "sale" from "sale_raw_duckdb"
+    num_defined_cols <- length(col_names_lists[[original_key]])
+
+    cat(paste0("*Defined columns: ", num_defined_cols, ", Columns in DB table: ", num_db_cols, "*\n"))
+    if (num_defined_cols != num_db_cols && num_db_cols > 0) {
+         cat(paste0("<p style='color:orange;'><strong>Warning:</strong> Mismatch in column count for `", table_name_raw, 
+                    "`. Defined: ", num_defined_cols, ", Actual in DB: ", num_db_cols, 
+                    ". This could indicate issues with delimiter, quoting, or column name definitions.</p>"))
+    }
+
+    # Preview first 3 rows
+    cat("\n##### First 3 Rows:\n")
+    tryCatch({
+      preview_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name_raw, " LIMIT 3"))
+      if (nrow(preview_data) > 0) {
+        kable(preview_data, caption = paste("First 3 rows of", table_name_raw)) %>% 
+          kableExtra::kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), 
+                                    full_width = FALSE,
+                                    font_size = 10) %>% # Smaller font for wide tables
+          print()
+      } else {
+        cat("Table is empty or could not retrieve rows.\n")
+      }
+    }, error = function(e) {
+      cat(paste0("<p style='color:red;'>Error previewing table `", table_name_raw, "`: ", e$message, "</p>\n"))
+    })
+    
+    # Show structure (column names and types from DuckDB's perspective)
+    cat("\n##### Structure (from DuckDB):\n")
+    tryCatch({
+        # DuckDB's PRAGMA table_info('table_name') is good for this
+        structure_info <- DBI::dbGetQuery(con, paste0("PRAGMA table_info('", table_name_raw, "');"))
+        if (nrow(structure_info) > 0) {
+            kable(structure_info %>% select(name, type), caption = paste("Structure of", table_name_raw)) %>% 
+              kableExtra::kable_styling(bootstrap_options = c("condensed"), full_width = FALSE) %>%
+              print()
+        } else {
+            cat("Could not retrieve structure information.\n")
+        }
+    }, error = function(e) {
+      cat(paste0("<p style='color:red;'>Error getting structure for table `", table_name_raw, "`: ", e$message, "</p>\n"))
+    })
+    cat("\n---\n") # Separator
+  }
+}
+```
+
+# 5. Next Steps
+
+With the raw data loaded, the next phase will involve:
+
+1.  Detailed Data Cleaning: For each table, convert data types, handle missing values, trim whitespace, and correct inconsistencies. This will be done using SQL queries in DuckDB, potentially defined in separate R functions for modularity.
+
+2.  Data Integration: Joining these cleaned tables into one or more master analytical datasets based on the relationships defined in the datamart_diagram.pdf.
+
+# 6. Close DuckDB Connection (End of Session)
+
+```{r}
+#| label: cleanup-duckdb-connection
+#| echo: false 
+#| include: false 
+
+if (exists("con") && DBI::dbIsValid(con)) {
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  cat("DuckDB connection closed.\n") # Message suppressed by include=false
+}
+rm(list = ls()) # Clean up environment
+
+
+```
