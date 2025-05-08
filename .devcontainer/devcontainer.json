@@ -15,6 +15,6 @@
       }
     },
     "postCreateCommand": "echo 'options(repos = c(CRAN = \"https://cloud.r-project.org\"))' >> ~/.Rprofile",
-    "postStartCommand": "sudo rstudio-server start",
+    "postStartCommand": "echo 'auth-none=1' | sudo tee -a /etc/rstudio/rserver.conf && sudo rstudio-server restart",
     "remoteUser": "rstudio"
   }
