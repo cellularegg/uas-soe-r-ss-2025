@@ -1,0 +1,20 @@
+{
+    "name": "R Development with RStudio",
+    "image": "ghcr.io/rocker-org/devcontainer/tidyverse:4.3",
+    "features": {
+      "ghcr.io/rocker-org/devcontainer-features/quarto-cli:1": {},
+      "ghcr.io/rocker-org/devcontainer-features/r-packages:1": {
+        "packages": "DBI,duckdb,tidyverse,shiny,shinydashboard,plotly,DT,lubridate,stringr,readr,ggplot2,tidymodels,xgboost"
+      }
+    },
+    "forwardPorts": [8787],
+    "portsAttributes": {
+      "8787": {
+        "label": "RStudio",
+        "onAutoForward": "openPreview"
+      }
+    },
+    "postCreateCommand": "echo 'options(repos = c(CRAN = \"https://cloud.r-project.org\"))' >> ~/.Rprofile",
+    "postStartCommand": "sudo rstudio-server start",
+    "remoteUser": "rstudio"
+  }
