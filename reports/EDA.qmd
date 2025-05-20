@@ -591,7 +591,7 @@ filtered_data <- full_data_sf %>%
 # --- Option 1: Boxplot for Top & Bottom 10 Neighborhoods ---
 ggplot(filtered_data, aes(x = Neighborhood, y = Price_per_sqft)) +
   geom_boxplot(outlier.shape = NA, fill = "#2980B9", color = "#1C2833", alpha = 0.6) +
-  coord_flip() +
+  coord_flip(ylim = c(0, 2000)) +
   labs(
     title = "Top & Bottom 10 Neighborhoods by Median Price per Sqft",
     x = "Neighborhood",
