@@ -378,7 +378,7 @@ full_data <- full_data %>%
 
 full_data <- full_data %>%
   mutate(
-    Sale_Date_Raw = as.Date(Sale_Date_Raw),  # adjust format if needed
+    Sale_Date_Raw = as.Date(Sale_Date_Raw, format = "%m/%d/%Y"),
     Sale_Price_Raw = as.numeric(Sale_Price_Raw),
     Year_Built_Raw = as.numeric(Year_Built_Raw),
     Adjusted_Year_Built_Raw = as.numeric(Adjusted_Year_Built_Raw),
@@ -400,7 +400,7 @@ full_data <- full_data %>%
   )
 ```
 
-```{r} 
+```{r warning=FALSE}} 
 # Example plot, can be scratched later
 
 library(tigris)
@@ -408,12 +408,14 @@ library(sf)
 library(dplyr)
 library(ggplot2)
 library(viridis)
+library(scales)
+library(grid)
 
-# 1. Pierce County Grenze laden (Washington = '53')
-pierce_county <- counties(state = "53", cb = TRUE) %>% 
+# 1. Load Pierce County boundary (Washington = '53')
+pierce_county <- counties(state = "53", cb = TRUE) %>%
   filter(NAME == "Pierce")
 
-# 2. full_data als sf-Objekt mit WGS84 (EPSG:4326) erzeugen
+# 2. Convert full_data to sf object with WGS84 CRS
 full_data_sf <- full_data %>%
   mutate(
     Longitude_Raw = as.numeric(Longitude_Raw),
@@ -421,41 +423,206 @@ full_data_sf <- full_data %>%
   ) %>%
   st_as_sf(coords = c("Longitude_Raw", "Latitude_Raw"), crs = 4326, remove = FALSE)
 
-# 3. CRS angleichen (pierce_county an full_data_sf anpassen)
+# 3. Transform Pierce County CRS to match full_data
 pierce_county <- st_transform(pierce_county, st_crs(full_data_sf))
 
-# 4. Nur Punkte innerhalb Pierce County behalten
+# 4. Keep only points within Pierce County
 full_data_sf <- full_data_sf[st_within(full_data_sf, pierce_county, sparse = FALSE), ]
 
-# 5. Bounding Box für die Karte
+# 5. Get bounding box
 lat_range <- st_bbox(pierce_county)[c("ymin", "ymax")]
 lon_range <- st_bbox(pierce_county)[c("xmin", "xmax")]
 
-# 6. Gitter erstellen, Price per sqft berechnen und aggregieren
-num_bins <- 60
+# 6. Define bin edges
+num_bins <- 80
+lat_bins <- seq(lat_range[1], lat_range[2], length.out = num_bins + 1)
+lon_bins <- seq(lon_range[1], lon_range[2], length.out = num_bins + 1)
 
-heatmap_data <- full_data_sf %>%
+# 7. Bin data and compute average price per sqft
+full_data_sf <- full_data_sf %>%
   mutate(
-    Lat_bin = cut(Latitude_Raw, breaks = seq(lat_range[1], lat_range[2], length.out = num_bins + 1), include.lowest = TRUE),
-    Lon_bin = cut(Longitude_Raw, breaks = seq(lon_range[1], lon_range[2], length.out = num_bins + 1), include.lowest = TRUE),
-    Price_per_sqft = Sale_Price_Raw / Square_Feet_Raw
+    Price_per_sqft = Sale_Price_Raw / Square_Feet_Raw,
+    Lat_bin = cut(Latitude_Raw, breaks = lat_bins, include.lowest = TRUE),
+    Lon_bin = cut(Longitude_Raw, breaks = lon_bins, include.lowest = TRUE)
   ) %>%
+  filter(Square_Feet_Raw >= 100)   # example threshold: ignore values > 1000
+
+# 8. Aggregate by bin and extract bin boundaries
+heatmap_data <- full_data_sf %>%
+  filter(Square_Feet_Raw >= 100) %>%   # example threshold: ignore values > 1000
   group_by(Lat_bin, Lon_bin) %>%
   summarize(
-    Avg_Price_sqft = mean(Price_per_sqft, na.rm = TRUE),
-    Lat_center = mean(as.numeric(sub("\\((.+),.*", "\\1", as.character(Lat_bin))) + as.numeric(sub("[^,]*,([^]]*)\\]", "\\1", as.character(Lat_bin)))) / 2,
-    Lon_center = mean(as.numeric(sub("\\((.+),.*", "\\1", as.character(Lon_bin))) + as.numeric(sub("[^,]*,([^]]*)\\]", "\\1", as.character(Lon_bin)))) / 2,
+    Avg_Price_sqft = median(Price_per_sqft, na.rm = TRUE),
     .groups = "drop"
+  ) %>%
+  mutate(
+    ymin = as.numeric(sub("\\((.+),.*", "\\1", Lat_bin)),
+    ymax = as.numeric(sub(".*,([^]]*)\\]", "\\1", Lat_bin)),
+    xmin = as.numeric(sub("\\((.+),.*", "\\1", Lon_bin)),
+    xmax = as.numeric(sub(".*,([^]]*)\\]", "\\1", Lon_bin))
   )
 
-# 7. Karte plotten
+# 9. Plot the heatmap using geom_rect
+# Calculate log breaks evenly spaced along the log scale
+log_min <- min(log(heatmap_data$Avg_Price_sqft), na.rm = TRUE)
+log_max <- max(log(heatmap_data$Avg_Price_sqft), na.rm = TRUE)
+
+# Generate 5 evenly spaced breaks on log scale
+log_breaks <- seq(log_min, log_max, length.out = 5)
+# Convert breaks back to original scale for labeling
+legend_labels <- scales::dollar(exp(log_breaks))
+
 ggplot() +
-  geom_sf(data = pierce_county, fill = "white", color = "black") +
-  geom_tile(data = heatmap_data, aes(x = Lon_center, y = Lat_center, fill = Avg_Price_sqft), alpha = 0.8) +
-  scale_fill_viridis_c(option = "magma", trans = "log", na.value = "grey90", name = "$/sqft (log scale)") +
+  geom_sf(data = pierce_county, fill = "white", color = "black", size = 0.6) +
+  geom_rect(
+    data = heatmap_data,
+    aes(
+      xmin = xmin, xmax = xmax,
+      ymin = ymin, ymax = ymax,
+      fill = log(Avg_Price_sqft)  # fill is log-transformed
+    ),
+    alpha = 0.85,
+    color = NA
+  ) +
+  scale_fill_viridis_c(
+    option = "magma",
+    trans = "identity",           # no further transformation, since fill is already log
+    breaks = log_breaks,          # breaks evenly spaced in log scale
+    labels = legend_labels,       # labels in original scale
+    na.value = "grey90",
+    name = "Price per sqft"
+  ) +
   coord_sf(xlim = lon_range, ylim = lat_range, expand = FALSE) +
-  labs(title = "Average Sale Price per Sqft in Pierce County", x = "Longitude", y = "Latitude") +
-  theme_minimal()
+  labs(
+    title = "Median Prices of Houses",
+    subtitle = "in Pierce County",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
+    axis.title = element_text(face = "italic", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    axis.text.y = element_text(size = 9),
+    legend.title = element_text(face = "bold", size = 12),
+    legend.text = element_text(size = 10),
+    legend.key.height = unit(1, "cm"),  # increase legend height here
+    panel.grid.major = element_line(color = "gray80", size = 0.3),
+    panel.grid.minor = element_blank()
+  )
+```
+
+```{r}
+# Beispiel: Kategorien in gewünschter Reihenfolge
+view_levels <- c(
+  "NA",
+  "View Lim -",
+  "View Lim",
+  "View Lim +",
+  "View Avg",
+  "View Avg +",
+  "View Good",
+  "View Good +",
+  "View V-Good"
+)
+
+# Faktor mit Reihenfolge erstellen
+full_data_sf <- full_data_sf %>%
+  mutate(
+    View_Quality = factor(View_Quality, levels = view_levels)
+  )
+
+# Quantile berechnen
+quantiles <- quantile(full_data_sf$Price_per_sqft, probs = c(0.01, 0.99), na.rm = TRUE)
+
+# Daten filtern auf 1%-99% Quantil
+filtered_data <- full_data_sf %>%
+  filter(Price_per_sqft >= quantiles[1], Price_per_sqft <= quantiles[2])
+
+# Boxplot with improved aesthetics
+ggplot(filtered_data, aes(x = View_Quality, y = Price_per_sqft)) +
+  geom_boxplot(fill = "#2C3E50", color = "black", alpha = 0.6, width = 0.7) +
+  scale_y_log10(
+    limits = c(quantiles[1], quantiles[2]),
+    breaks = scales::trans_breaks("log10", function(x) 10^x),
+    labels = scales::label_number(scale_cut = scales::cut_short_scale())
+  ) +
+  coord_cartesian(ylim = c(quantiles[1], 2000)) +
+  labs(
+    title = "House Price per Square Foot by View Quality",
+    subtitle = "",
+    x = "View Quality",
+    y = "Price per sqft"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12, color = "gray40"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.y = element_line(color = "gray85"),
+    panel.grid.minor.y = element_blank(),
+    axis.line = element_line(color = "gray60"),
+    panel.border = element_blank()
+  )
+```  
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Calculate median price per sqft by neighborhood
+median_prices <- full_data_sf %>%
+  group_by(Neighborhood) %>%
+  summarize(median_price = median(Price_per_sqft, na.rm = TRUE)) %>%
+  arrange(desc(median_price))
+
+# Select top and bottom 10 neighborhoods
+top_bottom_neigh <- bind_rows(
+  head(median_prices, 10),
+  tail(median_prices, 10)
+)
+
+# Filter main data to just those neighborhoods and set factor levels
+filtered_data <- full_data_sf %>%
+  filter(Neighborhood %in% top_bottom_neigh$Neighborhood) %>%
+  mutate(Neighborhood = factor(Neighborhood, levels = top_bottom_neigh$Neighborhood))
+
+# --- Option 1: Boxplot for Top & Bottom 10 Neighborhoods ---
+ggplot(filtered_data, aes(x = Neighborhood, y = Price_per_sqft)) +
+  geom_boxplot(outlier.shape = NA, fill = "#2980B9", color = "#1C2833", alpha = 0.6) +
+  coord_flip() +
+  labs(
+    title = "Top & Bottom 10 Neighborhoods by Median Price per Sqft",
+    x = "Neighborhood",
+    y = "Price per sqft"
+  ) +
+  theme_minimal(base_size = 12)
+
+# --- Option 2: Summary Table ---
+summary_table <- full_data_sf %>%
+  group_by(Neighborhood) %>%
+  summarize(
+    n = n(),
+    median_pps = median(Price_per_sqft, na.rm = TRUE),
+    IQR_pps = IQR(Price_per_sqft, na.rm = TRUE)
+  ) %>%
+  arrange(desc(median_pps))
+
+print(head(summary_table, 10))  # Top 10 neighborhoods by median
+# View(summary_table)  # Optional: Open in RStudio viewer
+
+# --- Option 3: Histogram of Neighborhood Medians ---
+ggplot(median_prices, aes(x = median_price)) +
+  geom_histogram(binwidth = 25, fill = "#1ABC9C", color = "white") +
+  labs(
+    title = "Distribution of Median Price per Sqft Across Neighborhoods",
+    x = "Median Price per sqft",
+    y = "Number of Neighborhoods"
+  ) +
+  theme_minimal(base_size = 13)
+
+
 ```
 
 # 6. Close DuckDB Connection (End of Session)
