@@ -369,7 +369,7 @@ cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), 
 
 full_data <- full_data %>%
   dplyr::select(Parcel_Number, Sale_Date_Raw, Sale_Price_Raw, Year_Built_Raw, Bedrooms_Raw, Bathrooms_Raw, Square_Feet_Raw, 
-                Latitude_Raw, Longitude_Raw, Neighborhood, View_Quality, Adjusted_Year_Built_Raw, Quality, Condition, 
+                Latitude_Raw, Longitude_Raw, Neighborhood, View_Quality, Stories_Raw, Adjusted_Year_Built_Raw, Quality, Condition, 
                 Utility_Electric, Utility_Sewer, Utility_Water, Street_Type, Valid_Invalid_Raw, Improved_Vacant_Raw)
 ```
 ```{r}  
@@ -386,6 +386,7 @@ full_data <- full_data %>%
     Bathrooms_Raw = as.numeric(Bathrooms_Raw),
     Square_Feet_Raw = as.numeric(Square_Feet_Raw),
     Latitude_Raw = as.numeric(Latitude_Raw),
+     Stories_Raw = as.numeric(Stories_Raw), 
     Longitude_Raw = as.numeric(Longitude_Raw),
     Neighborhood = as.factor(Neighborhood),
     View_Quality = as.factor(View_Quality),
@@ -400,9 +401,10 @@ full_data <- full_data %>%
   )
 ```
 
-```{r warning=FALSE}} 
-# Example plot, can be scratched later
+# EDA
 
+### Importing Libraries for EDA
+```{r}
 library(tigris)
 library(sf)
 library(dplyr)
@@ -410,6 +412,67 @@ library(ggplot2)
 library(viridis)
 library(scales)
 library(grid)
+```
+
+
+## Size & Structure
+
+```{r}
+ggplot(full_data, aes(x = Square_Feet_Raw)) +
+  geom_histogram(binwidth = 100, fill = "#1F77B4", color = "black", alpha = 0.7) +
+  scale_x_continuous(labels = scales::comma) +
+  labs(
+    title = "Distribution of Square Footage",
+    x = "Square Feet",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(full_data, aes(x = factor(Bedrooms_Raw), fill = factor(Bedrooms_Raw))) +
+  geom_bar(color = "black", alpha = 0.8) +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(
+    title = "Number of Bedrooms",
+    x = "Bedrooms",
+    y = "Count",
+    fill = "Bedrooms"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(full_data, aes(x = Bathrooms_Raw)) +
+  geom_histogram(binwidth = 0.25, fill = "#E377C2", color = "black", alpha = 0.7) +
+  scale_x_continuous(breaks = seq(0, max(full_data$Bathrooms_Raw, na.rm = TRUE), by = 0.5)) +
+  labs(
+    title = "Number of Bathrooms",
+    x = "Bathrooms",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+```{r}
+ggplot(full_data, aes(x = factor(Stories_Raw), fill = factor(Stories_Raw))) +
+  geom_bar(color = "black", alpha = 0.8) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Number of Stories",
+    x = "Stories",
+    y = "Count",
+    fill = "Stories"
+  ) +
+  theme_minimal()
+```
+
+
+
+## Location 
+
+```{r warning=FALSE}} 
+
 
 # 1. Load Pierce County boundary (Washington = '53')
 pierce_county <- counties(state = "53", cb = TRUE) %>%
