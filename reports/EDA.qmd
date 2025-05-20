@@ -412,10 +412,14 @@ library(ggplot2)
 library(viridis)
 library(scales)
 library(grid)
+library(GGally)
+library(tidyr)
 ```
 
 
 ## Size & Structure
+
+### Square Feet
 
 ```{r}
 ggplot(full_data, aes(x = Square_Feet_Raw)) +
@@ -428,6 +432,19 @@ ggplot(full_data, aes(x = Square_Feet_Raw)) +
   ) +
   theme_minimal()
 ```
+
+#### Square Footage vs. Sale Price
+```{r}
+ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3, color = "#1f77b4") +
+  scale_y_continuous(labels = scales::dollar) +
+  scale_x_continuous(labels = scales::comma) +
+  labs(title = "Sale Price vs. Square Footage", x = "Square Feet", y = "Sale Price") +
+  theme_minimal()
+```
+
+
+### Bedrooms
 
 ```{r}
 ggplot(full_data, aes(x = factor(Bedrooms_Raw), fill = factor(Bedrooms_Raw))) +
@@ -442,6 +459,17 @@ ggplot(full_data, aes(x = factor(Bedrooms_Raw), fill = factor(Bedrooms_Raw))) +
   theme_minimal()
 ```
 
+#### Sale Price vs. Bedrooms 
+```{r}
+ggplot(full_data, aes(x = factor(Bedrooms_Raw), y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#2ca02c", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price (log10)") +
+  theme_minimal()
+```
+
+
+### Bathrooms
 
 ```{r}
 ggplot(full_data, aes(x = Bathrooms_Raw)) +
@@ -454,6 +482,24 @@ ggplot(full_data, aes(x = Bathrooms_Raw)) +
   ) +
   theme_minimal()
 ```
+
+#### Sale Price vs. Bathrooms
+
+```{r}
+ggplot(full_data, aes(x = factor(Bathrooms_Raw), y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#9467bd", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(
+    title = "Sale Price by Number of Bathrooms",
+    x = "Bathrooms",
+    y = "Sale Price (log10)"
+  ) +
+  theme_minimal()
+```
+
+
+### Stories
+
 ```{r}
 ggplot(full_data, aes(x = factor(Stories_Raw), fill = factor(Stories_Raw))) +
   geom_bar(color = "black", alpha = 0.8) +
@@ -468,12 +514,58 @@ ggplot(full_data, aes(x = factor(Stories_Raw), fill = factor(Stories_Raw))) +
 ```
 
 
+#### Sale Price vs. Stories
+
+```{r}
+ggplot(full_data, aes(x = factor(Stories_Raw), y = Sale_Price_Raw, fill = factor(Stories_Raw))) +
+  geom_boxplot(alpha = 0.7) +
+  scale_y_log10(labels = scales::dollar) +
+  scale_fill_brewer(palette = "Pastel2") +
+  labs(
+    title = "Sale Price by Number of Stories",
+    x = "Stories",
+    y = "Sale Price (log scale)",
+    fill = "Stories"
+  ) +
+  theme_minimal()
+```
+
+
+
+### Correlation Matrix
+
+```{r}
+numeric_vars <- full_data %>%
+  select(Sale_Price_Raw, Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
+  na.omit()
+
+ggpairs(numeric_vars, 
+        lower = list(continuous = wrap("points", alpha = 0.3)), 
+        diag = list(continuous = "densityDiag"), 
+        upper = list(continuous = "cor"))
+```
+
+
+### Boxplots for Outlier Detection
+
+```{r}
+boxplot_stats <- full_data %>%
+  select(Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(x = Variable, y = Value)) +
+  geom_boxplot(fill = "#d62728", alpha = 0.6) +
+  coord_flip() +
+  labs(title = "Boxplots for Outlier Detection", y = "Value", x = "")
+boxplot_stats
+```
+
+
 
 ## Location 
 
+### Mapping Median Price per Sqft Across Pierce County
+
 ```{r warning=FALSE}} 
-
-
 # 1. Load Pierce County boundary (Washington = '53')
 pierce_county <- counties(state = "53", cb = TRUE) %>%
   filter(NAME == "Pierce")
@@ -577,6 +669,8 @@ ggplot() +
   )
 ```
 
+### View Quality
+
 ```{r}
 # Beispiel: Kategorien in gewünschter Reihenfolge
 view_levels <- c(
@@ -629,11 +723,11 @@ ggplot(filtered_data, aes(x = View_Quality, y = Price_per_sqft)) +
     axis.line = element_line(color = "gray60"),
     panel.border = element_blank()
   )
-```  
-```{r}
-library(dplyr)
-library(ggplot2)
+```
 
+### Neighborhood
+
+```{r}
 # Calculate median price per sqft by neighborhood
 median_prices <- full_data_sf %>%
   group_by(Neighborhood) %>%
@@ -684,7 +778,6 @@ ggplot(median_prices, aes(x = median_price)) +
     y = "Number of Neighborhoods"
   ) +
   theme_minimal(base_size = 13)
-
 
 ```
 
