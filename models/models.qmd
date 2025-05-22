@@ -1,0 +1,667 @@
+---
+title: "Basic Modelling"
+subtitle: "Classification"
+author: "Your Group Name"
+date: "today"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo 
+    code-fold: true
+    code-summary: "Show/Hide Code"
+    df-print: kable # For nice table printing with knitr::kable
+editor: source
+execute:
+  echo: true
+  warning: false   # Suppress warnings globally for now
+  message: false   # Suppress messages globally for now
+  error: true      # Display errors if they occur
+---
+
+# Datagather
+
+# 1. Introduction
+
+This document outlines the first step in our analysis of Pierce County property data: loading all raw data files into a DuckDB in-memory database. Each text file will be loaded into its own table with column names derived from the provided metadata (PDFs). All columns will initially be loaded as `VARCHAR` (text) to ensure robust loading; type conversions will occur during the subsequent cleaning phase.
+
+# 2. Setup and Configuration
+
+## 2.1. Load Libraries and Functions
+
+First, we load necessary R packages and our custom data loading function.
+
+```{r setup-load-libs-funcs}
+#| code-summary: Libraries
+#| code-fold: true
+#| code-hidden: true
+#| label: setup-load-libs-funcs
+
+if(!require(DBI)) install.packages("DBI");
+if(!require(duckdb)) install.packages("duckdb");
+if(!require(knitr)) install.packages("knitr");
+if(!require(dplyr)) install.packages("dplyr");
+library(DBI)
+library(duckdb)
+library(knitr)
+library(dplyr)
+
+# Source our custom data loading function
+# The path is relative to the Quarto document's location (reports/)
+source("../R/00_load_data_functions.R")
+
+```
+
+## 2.2. Define File Paths and Column Names
+
+Here, we define the locations of our raw data files and the column names for each table. IMPORTANT: You MUST verify and complete the col_names_lists with the correct column names in the correct order for EACH of your files based on your metadata PDFs.
+
+```{r}
+#| label: setup-file-configs
+
+# Base path to the directory where the raw .txt files are stored
+# This path is relative to the project root, assuming the .Rproj is in the root.
+# If running the .qmd directly, ensure this path correctly points to your data/raw folder.
+# For Quarto rendering, it's often best to assume the project root is the working directory.
+# Let's construct paths assuming the Quarto doc is in 'reports/' and data is in 'data/raw/'
+# relative to a common project root.
+project_root_relative_data_path <- "../data/raw/" # Path from 'reports/' dir to 'data/raw/'
+
+file_paths_list <- list(
+  sale = paste0(project_root_relative_data_path, "sale.txt"),
+  appraisal_account = paste0(project_root_relative_data_path, "appraisal_account.txt"),
+  improvement = paste0(project_root_relative_data_path, "improvement.txt"),
+  improvement_detail = paste0(project_root_relative_data_path, "improvement_detail.txt"),
+  improvement_builtas = paste0(project_root_relative_data_path, "improvement_builtas.txt"),
+  land_attribute = paste0(project_root_relative_data_path, "land_attribute.txt"),
+  seg_merge = paste0(project_root_relative_data_path, "seg_merge.txt"),
+  tax_account = paste0(project_root_relative_data_path, "tax_account.txt"),
+  tax_description = paste0(project_root_relative_data_path, "tax_description.txt")
+)
+
+# --- COLUMN NAMES ---
+# !!! ACTION REQUIRED: Populate these lists accurately for EACH file !!!
+# The order of names MUST match the order of columns in your .txt files.
+# These are placeholders. Refer to your PDF metadata.
+col_names_lists <- list(
+  sale = c(
+    "ETN", "Parcel_Count", "Parcel_Number", "Sale_Date_Raw", "Sale_Price_Raw", 
+    "Deed_Type", "Grantor", "Grantee", "Valid_Invalid_Raw", 
+    "Confirmed_Uncomfirmed_Raw", # Note: "Uncomfirmed" as per PDF
+    "Exclude_Reason", "Improved_Vacant_Raw", "Appraisal_Account_Type"
+  ), 
+  
+  appraisal_account = c(
+    "Parcel_Number", "Appraisal_Account_Type", "Business_Name", "Value_Area_ID", 
+    "Land_Economic_Area", "Buildings", "Group_Account_Number", 
+    "Land_Gross_Acres_Raw", "Land_Net_Acres_Raw", "Land_Gross_Square_Feet_Raw", 
+    "Land_Net_Square_Feet_Raw", "Land_Gross_Front_Feet_Raw", "Land_Width_Raw", 
+    "Land_Depth_Raw", "Submerged_Area_Square_Feet_Raw", "Appraisal_Date_Raw", 
+    "Waterfront_Type", "View_Quality", "Utility_Electric", "Utility_Sewer", 
+    "Utility_Water", "Street_Type", "Latitude_Raw", "Longitude_Raw"
+  ), 
+  
+  improvement = c(
+    "Parcel_Number", "Building_ID", "Property_Type", "Neighborhood", 
+    "Neighborhood_Extension", "Square_Feet_Raw", "Net_Square_Feet_Raw", 
+    "Percent_Complete_Raw", "Condition", "Quality", "Primary_Occupancy_Code_Raw", 
+    "Primary_Occupancy_Description", "Mobile_Home_Serial_Number", 
+    "Mobile_Home_Total_Length_Raw", "Mobile_Home_Make", 
+    "Attic_Finished_Square_Feet_Raw", "Basement_Square_Feet_Raw", 
+    "Basement_Finished_Square_Feet_Raw", "Carport_Square_Feet_Raw", 
+    "Balcony_Square_Feet_Raw", "Porch_Square_Feet_Raw", 
+    "Attached_Garage_Square_Feet_Raw", "Detached_Garage_Square_Feet_Raw", 
+    "Fireplaces_Raw", "Basement_Garage_Door_Raw"
+  ),
+                 
+  improvement_detail = c(
+    "Parcel_Number", "Building_ID", "Detail_Type", "Detail_Description", "Units_Raw"
+  ),
+                        
+  improvement_builtas = c(
+    "Parcel_Number", "Building_ID", "Built_As_Number_Raw", "Built_As_ID_Raw", 
+    "Built_As_Description", "Built_As_Square_Feet_Raw", "HVAC_Code_Raw", 
+    "HVAC_Description", "Exterior", "Interior", "Stories_Raw", "Story_Height_Raw", 
+    "Sprinkler_Square_Feet_Raw", "Roof_Cover", "Bedrooms_Raw", "Bathrooms_Raw", 
+    "Units_Count_Raw", "Class_Code", "Class_Description", "Year_Built_Raw", 
+    "Year_Remodeled_Raw", "Adjusted_Year_Built_Raw", "Physical_Age_Raw", 
+    "Built_As_Length_Raw", "Built_As_Width_Raw", "Mobile_Home_Model"
+  ),
+                         
+  land_attribute = c(
+    "Parcel_Number", "Attribute_Key", "Attribute_Description"
+  ), 
+                    
+  seg_merge = c(
+    "Seg_Merge_Number", "Parent_Child_Indicator", "Parcel_Number", 
+    "Continued_Indicator", "Completed_Date_Raw", "Tax_Year_Raw"
+  ), 
+               
+  tax_account = c(
+    "Parcel_Number", "Account_Type", "Property_Type", "Site_Address", 
+    "Use_Code", "Use_Description", "Tax_Year_Prior_Raw", 
+    "Tax_Code_Area_Prior_Year", "Exemption_Type_Prior_Year", 
+    "Current_Use_Code_Prior_Year", "Land_Value_Prior_Year_Raw", 
+    "Improvement_Value_Prior_Year_Raw", "Total_Market_Value_Prior_Year_Raw", 
+    "Taxable_Value_Prior_Year_Raw", "Tax_Year_Current_Raw", 
+    "Tax_Code_Area_Current_Year", "Exemption_Type_Current_Year", 
+    "Current_Use_Code_Current_Year", "Land_Value_Current_Year_Raw", 
+    "Improvement_Value_Current_Year_Raw", "Total_Market_Value_Current_Year_Raw", 
+    "Taxable_Value_Current_Year_Raw", "Range", "Township", "Section", 
+    "Quarter_Section", "Subdivision_Name", "Located_On_Parcel"
+  ), 
+                 
+  tax_description = c(
+    "Parcel_Number", "Line_Number_Raw", "Tax_Description_Line"
+  )
+)
+
+# Verify all files have column name definitions (basic check)
+if (!all(names(file_paths_list) %in% names(col_names_lists))) {
+  stop("Mismatch between file_paths_list and col_names_lists. Ensure every file has a corresponding column name definition.")
+}
+if (!all(names(col_names_lists) %in% names(file_paths_list))) {
+  stop("Mismatch between col_names_lists and file_paths_list. Ensure every column name definition has a corresponding file.")
+}
+```
+
+## 2.3. Initialize DuckDB Connection
+
+We'll use an in-memory DuckDB database for this session.
+
+```{r}
+#| label: setup-duckdb-connection
+
+con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+cat("DuckDB in-memory connection established.\n")
+```
+
+# 3. Load Raw Data into DuckDB
+
+Now, we iterate through our configured files and load each one into a separate table in DuckDB using our custom function.
+
+```{r}
+#| label: load-data-to-duckdb
+#| results: 'asis' # Allows cat() HTML output to render directly
+
+cat("### Starting Data Loading Process:\n\n")
+
+loaded_successfully <- c() # To track which tables loaded
+
+for (table_key in names(file_paths_list)) {
+  file_path <- file_paths_list[[table_key]]
+  col_names <- col_names_lists[[table_key]]
+  target_table_name <- paste0(table_key, "_raw_duckdb") # e.g., "sale_raw_duckdb"
+  
+  cat(paste0("Attempting to load: ", basename(file_path), " into table `", target_table_name, "`...\n"))
+  
+  if (is.null(col_names) || length(col_names) == 0) {
+      cat(paste0("<p style='color:red;'><strong>Error:</strong> Column names for '", table_key, "' are not defined or empty. Skipping.</p>\n\n"))
+      loaded_successfully[target_table_name] <- FALSE
+      next
+  }
+  
+  success <- load_pipe_delimited_file_to_duckdb(
+    con = con,
+    file_path = file_path,
+    col_names_vector = col_names,
+    target_table_name = target_table_name
+  )
+  loaded_successfully[target_table_name] <- success
+}
+
+cat("\n### Data Loading Process Complete.\n")
+
+# Summary of loading
+cat("\n#### Loading Summary:\n")
+for(tbl_name in names(loaded_successfully)){
+    status_msg <- if(loaded_successfully[tbl_name]) "Successfully loaded" else "Failed to load or file not found"
+    cat(paste0("- `", tbl_name, "`: ", status_msg, "\n"))
+}
+```
+
+# 4. Preliminary Data Inspection
+
+Let's list the tables in our DuckDB database and look at the first few rows and structure of each loaded table to verify the loading process.
+
+```{r}
+#| label: inspect-loaded-tables
+#| results: 'asis'
+
+cat("\n### Tables in DuckDB:\n")
+loaded_tables_in_db <- DBI::dbListTables(con)
+if (length(loaded_tables_in_db) > 0) {
+  kable(loaded_tables_in_db, col.names = "Table Name", caption = "Tables present in DuckDB") %>% print()
+} else {
+  cat("No tables found in DuckDB. Please check loading logs.\n")
+}
+
+
+cat("\n\n### Preview of Loaded Tables (First 3 Rows and Structure):\n")
+for (table_name_raw in loaded_tables_in_db) {
+  # Only preview tables we attempted to load based on our naming convention
+  if (grepl("_raw_duckdb$", table_name_raw) && isTRUE(loaded_successfully[table_name_raw])) {
+    cat(paste0("\n#### Table: `", table_name_raw, "`\n"))
+    
+    # Get column count from DB
+    db_cols <- DBI::dbListFields(con, table_name_raw)
+    num_db_cols <- length(db_cols)
+    
+    # Get defined column count
+    original_key <- sub("_raw_duckdb$", "", table_name_raw) # e.g. "sale" from "sale_raw_duckdb"
+    num_defined_cols <- length(col_names_lists[[original_key]])
+
+    cat(paste0("*Defined columns: ", num_defined_cols, ", Columns in DB table: ", num_db_cols, "*\n"))
+    if (num_defined_cols != num_db_cols && num_db_cols > 0) {
+         cat(paste0("<p style='color:orange;'><strong>Warning:</strong> Mismatch in column count for `", table_name_raw, 
+                    "`. Defined: ", num_defined_cols, ", Actual in DB: ", num_db_cols, 
+                    ". This could indicate issues with delimiter, quoting, or column name definitions.</p>"))
+    }
+
+    # Preview first 3 rows
+    cat("\n##### First 3 Rows:\n")
+    tryCatch({
+      preview_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name_raw, " LIMIT 3"))
+      if (nrow(preview_data) > 0) {
+        kable(preview_data, caption = paste("First 3 rows of", table_name_raw)) %>% 
+          kableExtra::kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), 
+                                    full_width = FALSE,
+                                    font_size = 10) %>% # Smaller font for wide tables
+          print()
+      } else {
+        cat("Table is empty or could not retrieve rows.\n")
+      }
+    }, error = function(e) {
+      cat(paste0("<p style='color:red;'>Error previewing table `", table_name_raw, "`: ", e$message, "</p>\n"))
+    })
+    
+    # Show structure (column names and types from DuckDB's perspective)
+    cat("\n##### Structure (from DuckDB):\n")
+    tryCatch({
+        # DuckDB's PRAGMA table_info('table_name') is good for this
+        structure_info <- DBI::dbGetQuery(con, paste0("PRAGMA table_info('", table_name_raw, "');"))
+        if (nrow(structure_info) > 0) {
+            kable(structure_info %>% select(name, type), caption = paste("Structure of", table_name_raw)) %>% 
+              kableExtra::kable_styling(bootstrap_options = c("condensed"), full_width = FALSE) %>%
+              print()
+        } else {
+            cat("Could not retrieve structure information.\n")
+        }
+    }, error = function(e) {
+      cat(paste0("<p style='color:red;'>Error getting structure for table `", table_name_raw, "`: ", e$message, "</p>\n"))
+    })
+    cat("\n---\n") # Separator
+  }
+}
+```
+
+# 5. Modeling Preparation
+```{r}
+# select 80k Appraisal_Account records and join the latest Sale record
+# There appears some Error with empty values in
+# appraisal_account_raw_duckdb (relevant) -- it works however with the first 80k rows
+# tax_account_raw_duckdb (irrelevant)
+# tax_description_raw_duckdb (irrelevant)
+
+# get list of tables
+DBI::dbListTables(con)
+
+# retrieve apraisal_account_raw_duckdb
+appraisal_account <- DBI::dbGetQuery(con, "SELECT * FROM appraisal_account_raw_duckdb limit 80000")
+
+# retrieve sale_raw_duckdb and join on Parcel_Number
+sales <- DBI::dbGetQuery(con, "SELECT * FROM sale_raw_duckdb")
+sales <- appraisal_account %>%
+  dplyr::inner_join(sales, by = "Parcel_Number") 
+
+# get the most recent sale per parcel
+sales <- sales %>%
+  dplyr::group_by(Parcel_Number) %>%
+  dplyr::slice_max(Sale_Date_Raw, n = 1) %>%
+  dplyr::ungroup()
+
+# drop Parcels that appear more than once
+sales <- sales %>%
+  dplyr::group_by(Parcel_Number) %>%
+  dplyr::mutate(Count = n()) %>%
+  dplyr::filter(Count == 1) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-Count)
+
+# print unique parcels
+unique_parcels <- unique(sales$Parcel_Number)
+cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), "\n"))
+
+```
+
+```{r}
+# select improvement_builtas_raw_duckdb and improvement_raw_duckdb and join on Parcel_Number add Building_ID
+
+improvement <- DBI::dbGetQuery(con, "SELECT * FROM improvement_raw_duckdb")
+improvement_builtas <- DBI::dbGetQuery(con, "SELECT * FROM improvement_builtas_raw_duckdb")
+improvement <- improvement %>%
+  dplyr::inner_join(improvement_builtas, by = c("Parcel_Number", "Building_ID"))
+improvement <- improvement %>%
+  dplyr::group_by(Parcel_Number) %>%
+  dplyr::slice_max(Year_Built_Raw, n = 1) %>%
+  dplyr::ungroup()
+```
+
+```{r}
+# join improvement and sales on Parcel_Number
+# filter for Residential, Valid, Improved
+# TODO: currently double Parcel_Number are dropped. check if this is correct (mutliple improvements). but must have just one anyway
+# 21k Rows left for EDA
+
+full_data <- sales %>%
+  dplyr::inner_join(improvement, by = "Parcel_Number") %>%
+  dplyr::filter(Appraisal_Account_Type.x == "Residential") %>%
+  dplyr::filter(Valid_Invalid_Raw == "1") %>%
+  dplyr::filter(Improved_Vacant_Raw == "1")
+
+#drop Parcels that appear more than once
+full_data <- full_data %>%
+  dplyr::group_by(Parcel_Number) %>%
+  dplyr::mutate(Count = n()) %>%
+  dplyr::filter(Count == 1) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(-Count)
+
+# print unique parcels
+unique_parcels <- unique(full_data$Parcel_Number)
+cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), "\n"))
+
+full_data <- full_data %>%
+  dplyr::select(Parcel_Number, Sale_Date_Raw, Sale_Price_Raw, Year_Built_Raw, Bedrooms_Raw, Bathrooms_Raw, Square_Feet_Raw, 
+                Latitude_Raw, Longitude_Raw, Neighborhood, View_Quality, Stories_Raw, Adjusted_Year_Built_Raw, Quality, Condition, 
+                Utility_Electric, Utility_Sewer, Utility_Water, Street_Type, Valid_Invalid_Raw, Improved_Vacant_Raw)
+```
+
+```{r}
+# Convert to the right data types
+# this could be stored in DB, csv etc. and loaded in the future
+
+full_data <- full_data %>%
+  mutate(
+    Sale_Date_Raw = as.Date(Sale_Date_Raw, format = "%m/%d/%Y"),
+    Sale_Price_Raw = as.numeric(Sale_Price_Raw),
+    Year_Built_Raw = as.numeric(Year_Built_Raw),
+    Adjusted_Year_Built_Raw = as.numeric(Adjusted_Year_Built_Raw),
+    Bedrooms_Raw = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw = as.numeric(Bathrooms_Raw),
+    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
+    Latitude_Raw = as.numeric(Latitude_Raw),
+     Stories_Raw = as.numeric(Stories_Raw), 
+    Longitude_Raw = as.numeric(Longitude_Raw),
+    Neighborhood = as.factor(Neighborhood),
+    View_Quality = as.factor(View_Quality),
+    Quality = as.factor(Quality),
+    Condition = as.factor(Condition),
+    Utility_Electric = as.factor(Utility_Electric),
+    Utility_Sewer = as.factor(Utility_Sewer),
+    Utility_Water = as.factor(Utility_Water),
+    Street_Type = as.factor(Street_Type),
+    Valid_Invalid_Raw = as.factor(Valid_Invalid_Raw),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw)
+  )
+```
+
+# Model
+
+```{r}
+#| code-summary: Libraries
+#| code-fold: true
+#| code-hidden: true
+#| label: setup-load-libs-funcs
+
+# Only numeric, non-NA data for PCA
+if(!require(tidyr)) install.packages("tidyr");
+if(!require(ggplot2)) install.packages("ggplot2");
+if(!require(FactoMineR)) install.packages("FactoMineR");
+if(!require(factoextra)) install.packages("factoextra");
+library(tidyr)
+library(ggplot2)
+library(FactoMineR)
+library(factoextra)
+
+# Group raw variables into driving factors
+size_vars <- c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw", "Stories_Raw")
+location_vars <- c("Latitude_Raw", "Longitude_Raw", "Neighborhood", "Street_Type")
+quality_vars <- c("Year_Built_Raw", "Adjusted_Year_Built_Raw", "View_Quality", 
+                  "Condition", "Quality", "Utility_Electric", "Utility_Sewer", "Utility_Water")
+
+
+# Select numeric columns from full_data
+numeric_data <- full_data %>%
+  select(Sale_Price_Raw, all_of(size_vars), all_of(location_vars[1:2]), all_of(quality_vars[1:2])) %>%
+  drop_na()
+
+# Scale data
+scaled_data <- scale(numeric_data)
+
+# run PCA
+pca_result <- prcomp(scaled_data, center = TRUE, scale. = TRUE)
+
+# scree plot
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50))
+
+# contribution of variables to first components
+fviz_pca_var(pca_result, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+
+```
+
+```{r}
+final_model_data <- full_data %>%
+  select(Sale_Price_Raw, all_of(size_vars), all_of(location_vars), all_of(quality_vars))
+final_model_data
+```
+
+```{r}
+# list unique values, mins, maxs, means, medians, how much NA, etc.
+summarize_final_model_data <- function(df) {
+  tibble(
+    Variable = names(df),
+    Type = sapply(df, function(x) class(x)[1]),
+    Unique_Values = sapply(df, function(x) n_distinct(x, na.rm = TRUE)),
+    NAs = sapply(df, function(x) sum(is.na(x))),
+    Min = sapply(df, function(x) if(is.numeric(x)) min(x, na.rm = TRUE) else NA),
+    Max = sapply(df, function(x) if(is.numeric(x)) max(x, na.rm = TRUE) else NA),
+    Mean = sapply(df, function(x) if(is.numeric(x)) mean(x, na.rm = TRUE) else NA),
+    Median = sapply(df, function(x) if(is.numeric(x)) median(x, na.rm = TRUE) else NA)
+  )
+}
+
+summary_stats <- summarize_final_model_data(final_model_data)
+print(summary_stats)
+```
+
+```{r}
+# drop View_quality
+final_model_data <- final_model_data %>%
+  select(-View_Quality)
+```
+
+```{r}
+missing_summary <- final_model_data %>%
+  summarise(across(everything(), ~ mean(is.na(.)) * 100)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing_Percent") %>%
+  arrange(desc(Missing_Percent))
+print(missing_summary)
+```
+
+## Bedroom imputation
+```{r}
+final_model_data %>%
+  mutate(Missing_Bedrooms = is.na(Bedrooms_Raw)) %>%
+  group_by(Missing_Bedrooms) %>%
+  summarise(
+    Mean_Price = mean(Sale_Price_Raw, na.rm = TRUE),
+    Mean_Size = mean(Square_Feet_Raw, na.rm = TRUE),
+    Mean_Bathrooms = mean(Bathrooms_Raw, na.rm = TRUE),
+    Count = n()
+  )
+```
+
+```{r}
+# impute missing values for bedrooms with KNN
+if(!require(VIM)) install.packages("VIM");
+library(VIM)
+
+
+# KNN imputation
+knn_data <- final_model_data %>%
+  select(Sale_Price_Raw, Square_Feet_Raw, Latitude_Raw, Longitude_Raw, 
+         Bedrooms_Raw, Bathrooms_Raw, Stories_Raw)  # only numeric
+
+imputed_data <- kNN(knn_data, variable = c("Bedrooms_Raw", "Bathrooms_Raw", "Stories_Raw"), k = 5)
+
+imputed_data_clean <- imputed_data %>%
+  select(-ends_with(".imp"))
+```
+
+```{r}
+table(is.na(final_model_data$Bedrooms_Raw))
+table(is.na(imputed_data_clean$Bedrooms_Raw))
+```
+
+## Bathroom imputation
+```{r}
+final_model_data %>%
+  mutate(Missing_Bathrooms = is.na(Bathrooms_Raw)) %>%
+  group_by(Missing_Bathrooms) %>%
+  summarise(
+    Mean_Price = mean(Sale_Price_Raw, na.rm = TRUE),
+    Mean_Size = mean(Square_Feet_Raw, na.rm = TRUE),
+    Mean_Bedrooms = mean(Bedrooms_Raw, na.rm = TRUE),
+    Count = n()
+  )
+```
+
+```{r}
+# impute missing values for bedrooms with KNN
+if(!require(VIM)) install.packages("VIM");
+library(VIM)
+
+
+# KNN imputation
+knn_data <- final_model_data %>%
+  select(Sale_Price_Raw, Square_Feet_Raw, Latitude_Raw, Longitude_Raw, 
+         Bedrooms_Raw, Bathrooms_Raw, Stories_Raw)  # only numeric
+
+imputed_data <- kNN(knn_data, variable = c("Bedrooms_Raw", "Bathrooms_Raw", "Stories_Raw"), k = 5)
+
+imputed_data_clean <- imputed_data %>%
+  select(-ends_with(".imp"))
+```
+
+```{r}
+table(is.na(final_model_data$Bathrooms_Raw))
+table(is.na(imputed_data_clean$Bathrooms_Raw))
+```
+
+## Stories imputation
+```{r}
+final_model_data %>%
+  mutate(Missing_stories = is.na(Stories_Raw)) %>%
+  group_by(Missing_stories) %>%
+  summarise(
+    Mean_Price = mean(Sale_Price_Raw, na.rm = TRUE),
+    Mean_Size = mean(Square_Feet_Raw, na.rm = TRUE),
+    Mean_Bedrooms = mean(Bedrooms_Raw, na.rm = TRUE),
+    Mean_Bathrooms = mean(Bathrooms_Raw, na.rm = TRUE),
+    Count = n()
+  )
+```
+
+```{r}
+# impute missing values for bedrooms with KNN
+if(!require(VIM)) install.packages("VIM");
+library(VIM)
+
+
+# KNN imputation
+knn_data <- final_model_data %>%
+  select(Sale_Price_Raw, Square_Feet_Raw, Latitude_Raw, Longitude_Raw, 
+         Bedrooms_Raw, Bathrooms_Raw, Stories_Raw)  # only numeric
+
+imputed_data <- kNN(knn_data, variable = c("Bedrooms_Raw", "Bathrooms_Raw", "Stories_Raw"), k = 5)
+
+imputed_data_clean <- imputed_data %>%
+  select(-ends_with(".imp"))
+```
+
+```{r}
+table(is.na(final_model_data$Stories_Raw))
+table(is.na(imputed_data_clean$Stories_Raw))
+```
+
+```{r}
+final_model_data <- final_model_data %>%
+  mutate(
+    Bedrooms_Raw = imputed_data_clean$Bedrooms_Raw,
+    Bathrooms_Raw = imputed_data_clean$Bathrooms_Raw,
+    Stories_Raw = imputed_data_clean$Stories_Raw
+  )
+```
+
+
+```{r}
+#| code-summary: Libraries
+#| code-fold: true
+
+if(!require(caret)) install.packages("caret");
+if(!require(randomForest)) install.packages("randomForest");
+if(!require(e1071)) install.packages("e1071");
+
+library(caret)
+library(randomForest)
+library(e1071)
+
+# split data into training and test set
+train_index <- createDataPartition(final_model_data$Sale_Price_Raw, p = 0.8, list = FALSE)
+train_data <- final_model_data[train_index, ]
+test_data <- final_model_data[-train_index, ]
+
+train_data <- train_data %>% select(-Neighborhood)
+test_data <- test_data %>% select(-Neighborhood)
+
+# train model
+ntree_vals <- seq(50, 1000, by = 50)
+ctrl <- trainControl(method = "cv", number = 5)
+rf_models <- lapply(ntree_vals, function(ntree) {
+  train(x = train_data,
+        y = train_data$Sale_Price_Raw,
+        method = "rf",
+        ntree = ntree,
+        trControl = ctrl,
+        tuneGrid = expand.grid(mtry = floor(sqrt(ncol(train_data)))),
+        )
+})
+
+rf_results <- sapply(rf_models, function(model) {
+  model$results$Accuracy
+})
+
+rf_results <- data.frame(ntree = ntree_vals, Accuracy = rf_results)
+best <- rf_results[which.max(rf_results$Accuracy), ]
+print(best)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(data = data.frame(Actual = test_data$Sale_Price_Raw,
+                         Predicted = predictions),
+       aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "Predicted vs. Actual Sale Prices",
+       x = "Actual Sale Price", y = "Predicted Sale Price") +
+  theme_minimal()
+```
+
+
+
+
