@@ -1,7 +1,7 @@
 ---
 title: "Pierce County Property Analysis: Data Loading"
 subtitle: "Step 1: Acquiring and Loading Raw Data"
-author: "Your Group Name"
+author: "B1_Pierce-House-Price"
 date: "today"
 format: 
   html:
@@ -437,12 +437,18 @@ ggplot(full_data, aes(x = Square_Feet_Raw)) +
 ```{r}
 ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
   geom_point(alpha = 0.3, color = "#1f77b4") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred") +
   scale_y_continuous(labels = scales::dollar) +
   scale_x_continuous(labels = scales::comma) +
-  labs(title = "Sale Price vs. Square Footage", x = "Square Feet", y = "Sale Price") +
+  labs(
+    title = "Sale Price vs. Square Footage",
+    x = "Square Feet",
+    y = "Sale Price"
+  ) +
   theme_minimal()
 ```
 
+This scatterplot shows the relationship between square footage and sale price, with a dashed trend line from a linear model. While there is a general upward trend—indicating that larger homes tend to sell for more—the data is highly dispersed, particularly for properties under 5,000 square feet. This dense cluster suggests most homes fall within typical residential ranges. Beyond 5,000 sq ft, points become sparse and more variable, with some large homes selling for relatively low prices, likely due to other limiting factors like location or condition. Outliers above $5 million are rare but present. The trend line, although positive, underrepresents the true variability, highlighting that square footage alone cannot fully explain sale price.
 
 ### Bedrooms
 
@@ -464,10 +470,24 @@ ggplot(full_data, aes(x = factor(Bedrooms_Raw), fill = factor(Bedrooms_Raw))) +
 ggplot(full_data, aes(x = factor(Bedrooms_Raw), y = Sale_Price_Raw)) +
   geom_boxplot(fill = "#2ca02c", alpha = 0.6) +
   scale_y_log10(labels = scales::dollar) +
-  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price (log10)") +
+  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price") +
   theme_minimal()
 ```
 
+
+#### Zooming in for more information
+
+```{r}
+ggplot(full_data, aes(x = factor(Bedrooms_Raw), y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#2ca02c", alpha = 0.6) +
+  scale_y_log10(
+  labels = scales::dollar,
+  limits = c(50000, 1000000)
+) +
+  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price") +
+  theme_minimal()
+```
+This parallel boxplots show how sale prices vary with the number of bedrooms. Most homes fall between 1 and 6 bedrooms. There is a slight decrease in average prices from 1-3 bedrooms. This might indicate that the smaller homes are in better locations or are more luxurious. After that the median prices are gradually increasing from around $250,000 for 3 bedrooms to over $400,000 for 6–8 bedrooms. There’s a noticeable jump at 10–11 bedrooms, though those categories have very few observations and may not be representative. Sale prices are most concentrated between $200k and $500k across bedroom counts, but there’s substantial overlap, suggesting that bedroom count alone doesn’t strongly determine price without considering other features like location or condition.
 
 ### Bathrooms
 
@@ -492,10 +512,25 @@ ggplot(full_data, aes(x = factor(Bathrooms_Raw), y = Sale_Price_Raw)) +
   labs(
     title = "Sale Price by Number of Bathrooms",
     x = "Bathrooms",
-    y = "Sale Price (log10)"
+    y = "Sale Price"
   ) +
   theme_minimal()
 ```
+#### Zooming in for more information
+
+```{r}
+ggplot(full_data, aes(x = factor(Bathrooms_Raw), y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#9467bd", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar,
+  limits = c(50000, 1000000)) +
+  labs(
+    title = "Sale Price by Number of Bathrooms",
+    x = "Bathrooms",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+These parallel boxplots illustrate how sale prices vary with the number of bathrooms. There's a clear upward trend: as bathroom count increases from 0.5 to around 5, median sale prices generally rise, indicating a strong positive association. Most homes cluster between 1.0 and 3.5 bathrooms, with prices centered around $300,000 to $500,000. For higher bathroom counts (5.5+), prices remain elevated, but sample sizes shrink and variability increases. A few extreme values and narrow boxes at the high end suggest outliers or rare luxury properties. Overall, bathroom count is a stronger and more consistent predictor of price than bedroom count.
 
 
 ### Stories
@@ -524,13 +559,29 @@ ggplot(full_data, aes(x = factor(Stories_Raw), y = Sale_Price_Raw, fill = factor
   labs(
     title = "Sale Price by Number of Stories",
     x = "Stories",
-    y = "Sale Price (log scale)",
+    y = "Sale Price",
     fill = "Stories"
   ) +
   theme_minimal()
 ```
 
+#### Zooming in for more information
 
+```{r}
+ggplot(full_data, aes(x = factor(Stories_Raw), y = Sale_Price_Raw, fill = factor(Stories_Raw))) +
+  geom_boxplot(alpha = 0.7) +
+  scale_y_log10(labels = scales::dollar,
+  limits = c(50000, 1000000)) +
+  scale_fill_brewer(palette = "Pastel2") +
+  labs(
+    title = "Sale Price by Number of Stories",
+    x = "Stories",
+    y = "Sale Price",
+    fill = "Stories"
+  ) +
+  theme_minimal()
+```
+These parallel boxplots show sale price distributions by the number of stories in a home. There’s a general upward trend: properties with more stories tend to have higher median sale prices. Homes with 2.5 to 3 stories show noticeably higher prices (medians around $500,000), suggesting a premium for multi-story designs, possibly reflecting larger or higher-end homes. Most 1–2 story homes, which dominate the market, cluster around $300,000–$400,000. The "0 stories" and "NA" categories likely include data anomalies or special cases like basements or missing entries. Overall, story count appears positively associated with value, though the pattern is less sharp than for bathrooms.
 
 ### Correlation Matrix
 
@@ -544,6 +595,7 @@ ggpairs(numeric_vars,
         diag = list(continuous = "densityDiag"), 
         upper = list(continuous = "cor"))
 ```
+This correlation matrix and pair plot illustrate the relationships among sale price and key structural features. Sale price shows a moderate positive correlation with square footage (0.33), while its associations with bathrooms (0.20), stories (0.12), and especially bedrooms (0.08) are weaker, indicating that no single feature strongly predicts price alone. In contrast, structural features are highly interrelated—bathrooms and bedrooms have a very strong correlation (0.86), and both are also strongly linked to square footage and stories. These patterns suggest that larger, multi-story homes tend to include more bedrooms and bathrooms. Overall, while individual features have limited explanatory power for price, their combined effect likely holds more predictive value.
 
 
 ### Boxplots for Outlier Detection
@@ -559,6 +611,7 @@ boxplot_stats <- full_data %>%
 boxplot_stats
 ```
 
+This horizontal boxplot visualizes outliers across four key features: Stories_Raw, Square_Feet_Raw, Bedrooms_Raw, and Bathrooms_Raw. Most of the variables have relatively compact distributions, but Square_Feet_Raw stands out with a wide range and a long tail of extreme values — some exceeding 15,000 square feet — indicating numerous outliers. Bathrooms_Raw and Bedrooms_Raw also show a few high-end outliers, though far fewer in scale. Stories_Raw appears tightly clustered with minimal variation, suggesting that most homes have 1 to 3 stories. Overall, this plot highlights the need for careful handling of large square footage values during modeling or normalization.
 
 
 ## Location 
