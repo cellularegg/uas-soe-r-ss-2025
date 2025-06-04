@@ -844,6 +844,40 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Street_Type)) +
 
 ```
 
+## Target Variable
+
+### Sales Price
+```{r}
+#Create a histogram of the sales price
+ggplot(full_data_sf, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+
+
+### Sales Price per Square Foot
+```{r}
+ggplot(full_data_sf, aes(x = Price_per_sqft)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21)+
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+
 # 6. Close DuckDB Connection (End of Session)
 
 ```{r}
