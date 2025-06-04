@@ -29,7 +29,7 @@ This document outlines the first step in our analysis of Pierce County property 
 
 First, we load necessary R packages and our custom data loading function.
 
-```{r setup-load-libs-funcs}
+```{r}
 #| label: setup-load-libs-funcs
 
 # Ensure these packages are installed: install.packages(c("DBI", "duckdb", "knitr", "dplyr"))
@@ -778,6 +778,103 @@ ggplot(median_prices, aes(x = median_price)) +
     y = "Number of Neighborhoods"
   ) +
   theme_minimal(base_size = 13)
+
+```
+
+
+## Utilities
+
+### Utility Water
+
+```{r}
+# Create boxplots per category of water utility
+ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Water)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "House Price per Square Foot by Water Utility",
+    x = "Price per sqft",
+    y = "Water Utility"
+  ) +
+  theme_minimal(base_size = 21)
+
+```
+
+### Utility Electric
+```{r}
+# Create boxplots per category of electric utility
+ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Electric)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "House Price per Square Foot by Electric Utility",
+    x = "Price per sqft",
+    y = "Electric Utility"
+  ) +
+  theme_minimal(base_size = 21) 
+```
+
+### Utility Sewer
+```{r}
+# Create boxplots per category of sewer utility
+ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Sewer)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "House Price per Square Foot by Sewer Utility",
+    x = "Price per sqft",
+    y = "Sewer Utility"
+  ) +
+  theme_minimal(base_size = 21)
+```
+
+### Street type
+
+```{r}
+# Create boxplots per category of street type
+ggplot(full_data_sf, aes(x = Price_per_sqft, y = Street_Type)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "House Price per Square Foot by Street Type",
+    x = "Price per sqft",
+    y = "Street Type"
+  ) +
+  theme_minimal(base_size = 21)
+
+```
+
+## Target Variable
+
+### Sales Price
+```{r}
+#Create a histogram of the sales price
+ggplot(full_data_sf, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+
+
+### Sales Price per Square Foot
+```{r}
+ggplot(full_data_sf, aes(x = Price_per_sqft)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21)+
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
 
 ```
 
