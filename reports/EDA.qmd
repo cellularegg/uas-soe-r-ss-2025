@@ -721,6 +721,7 @@ ggplot() +
     panel.grid.minor = element_blank()
   )
 ```
+This heatmap shows the median sale price per square foot across Pierce County, binned spatially by location. Darker purple areas indicate lower prices (around $28–$90/sqft), while bright yellow regions represent the highest prices (reaching over $3,000/sqft). High-price clusters appear along the northern and western shorelines, likely reflecting premium waterfront properties or affluent urban neighborhoods. Central and southern regions show more moderate to low pricing. This spatial distribution highlights strong geographic variation in property values, driven by location desirability, amenities, and potentially school districts or zoning.
 
 ### View Quality
 
@@ -777,6 +778,7 @@ ggplot(filtered_data, aes(x = View_Quality, y = Price_per_sqft)) +
     panel.border = element_blank()
   )
 ```
+This boxplot displays how house price per square foot varies by View Quality, using a log-scaled y-axis. There is a clear upward trend: properties with higher-rated views (e.g., “View Good +”, “View V-Good”) tend to command higher prices per square foot, with medians and upper quartiles rising progressively across the view quality scale. In contrast, properties with limited or average views cluster at lower price ranges. The "NA" group (missing view ratings) spans a wide range, suggesting it includes a mix of property types. Overall, this plot confirms that better views are strongly associated with higher per-square-foot pricing in Pierce County.
 
 ### Neighborhood
 
@@ -833,6 +835,9 @@ ggplot(median_prices, aes(x = median_price)) +
   theme_minimal(base_size = 13)
 
 ```
+This horizontal boxplot compares the top and bottom 10 neighborhoods in Pierce County based on their median price per square foot. Neighborhoods at the bottom of the plot (e.g., 101115, 131803, 030514) have substantially higher price per sqft, with medians nearing or exceeding $1,000. In contrast, neighborhoods at the top (e.g., 150806, 140102, 101204) exhibit much lower median prices, some under $200/sqft.
+
+The wide spread and long whiskers in several neighborhoods suggest significant variability within those areas, possibly due to mixed housing stock or outlier properties (e.g., luxury homes or tear-downs). This plot highlights stark spatial inequalities in property values and can guide location-sensitive pricing models or housing policy analyses.
 
 
 ## Utilities
@@ -852,6 +857,8 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Water)) +
   theme_minimal(base_size = 21)
 
 ```
+This boxplot compares house price per square foot across three categories of water utility: WATER AVAILABLE, WATER INSTALLED, and WATER NO. The x-axis is on a linear scale, not log-transformed — despite the wide numeric range, the axis is formatted in dollar units that span from near-zero to over $10,000. WATER AVAILABLE and WATER NO have similar medians, indicating that having water nearby but not connected does not clearly impact value compared to having no water at all. Surprisingly, WATER INSTALLED — where water is fully connected — shows a lower median price per square foot and a tighter distribution. This could suggest that these homes are in more standardized, possibly older or more rural developments where prices are lower despite having full utilities.
+All categories exhibit substantial outliers, with WATER AVAILABLE having the widest spread, hinting at greater variability in property types or locations.
 
 ### Utility Electric
 ```{r}
@@ -866,6 +873,13 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Electric)) +
   ) +
   theme_minimal(base_size = 21) 
 ```
+This boxplot compares house price per square foot across three electric utility statuses: POWER NO - COMMENT, POWER AVAILABLE, and POWER INSTALLED.
+
+Surprisingly, properties labeled POWER NO - COMMENT exhibit the highest median price per square foot, followed by POWER AVAILABLE, while POWER INSTALLED shows the lowest median. This runs counter to expectations, as we might assume that installed power infrastructure would correspond to higher property values.
+
+The likely explanation lies in sample size and context. POWER NO - COMMENT may represent a very small number of atypical or high-end parcels (e.g., luxury off-grid properties, recent subdivisions not yet updated in records), causing the median to appear unusually high. POWER AVAILABLE includes properties with access to power but no connection yet—possibly newer or undeveloped plots with strong location value. POWER INSTALLED, despite indicating full utility access, likely includes a large and varied pool of properties, including older or more standardized housing stock, resulting in a lower and more stable median.
+
+In short, while utility status influences price, this plot suggests it does not operate in isolation, and high medians in less common categories may reflect underlying location or development factors rather than utilities themselves.
 
 ### Utility Sewer
 ```{r}
@@ -880,6 +894,7 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Sewer)) +
   ) +
   theme_minimal(base_size = 21)
 ```
+This boxplot compares price per square foot by sewer/septic utility status. While median differences are relatively small across the four categories, properties with SEWER/SEPTIC NO show the highest median value, slightly above the others. The spread for that group is also narrower, suggesting more consistent pricing. Other categories—INSTALLED, AVAILABLE, and NO PERC—have slightly lower medians and more variability. Overall, sewer utility status doesn't strongly differentiate price per square foot, but properties without service ("NO") unexpectedly show the highest central tendency.
 
 ### Street type
 
@@ -896,6 +911,10 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Street_Type)) +
   theme_minimal(base_size = 21)
 
 ```
+
+This boxplot compares house price per square foot by street type: PAVED, STREET UNPAVED, and STREET NO ROAD. The data shows that properties labeled STREET NO ROAD have the highest median price per square foot, although this category likely contains relatively few observations, as suggested by the narrow spread and short whiskers.
+
+In contrast, PAVED and UNPAVED streets have much broader distributions and very similar medians, indicating little pricing difference between those two street types overall. The unexpectedly high values in the "no road" category may reflect niche or premium parcels (e.g., secluded land or view lots) rather than a true price advantage. Overall, while most properties are on paved or unpaved roads, the small group with no road access stands out—likely due to specific location factors rather than street type alone.
 
 ## Target Variable
 
@@ -914,6 +933,9 @@ ggplot(full_data_sf, aes(x = Sale_Price_Raw)) +
         axis.ticks.y=element_blank())
 
 ```
+```{r}
+summary(full_data_sf$Sale_Price_Raw)
+```
 
 
 ### Sales Price per Square Foot
@@ -922,7 +944,7 @@ ggplot(full_data_sf, aes(x = Price_per_sqft)) +
   geom_boxplot() +
   scale_x_log10(labels = scales::dollar) +
   labs(
-    title = "Distribution of Sales Price",
+    title = "Distribution of Sales Price per Square Foot",
     x = "Sales Price",
   ) +
   theme_minimal(base_size = 21)+
@@ -930,6 +952,246 @@ ggplot(full_data_sf, aes(x = Price_per_sqft)) +
         axis.ticks.y=element_blank())
 
 ```
+
+```{r}
+summary(full_data_sf$Price_per_sqft)
+```
+
+
+## Quality & Condition
+
+### Year Built vs Adjusted Year Built
+
+```{r}
+# Age distributions
+full_data %>%
+  ggplot(aes(x = Year_Built_Raw)) +
+  geom_histogram(binwidth = 5, fill = "#F39C12", color = "black") +
+  labs(title = "Distribution of Year Built", x = "Year Built", y = "Count") +
+  theme_minimal()
+
+
+```
+This histogram displays the distribution of properties by their Year Built. The majority of homes were constructed between 1970 and 2010, with a sharp peak around the late 1990s to early 2000s, indicating a building boom during that time. There are relatively few properties built before 1940, and even fewer before 1900, which suggests that the housing stock in this area is predominantly mid-to-late 20th century and newer. Overall, this distribution implies that most homes are relatively modern, which may influence market value, required renovations, and buyer expectations.
+
+### Price vs. Age
+
+
+```{r}
+# Price vs Age
+full_data %>%
+  mutate(Building_Age = Sale_Date_Raw - as.Date(paste0(Year_Built_Raw, "-01-01"))) %>%
+  ggplot(aes(x = as.numeric(Building_Age)/365.25, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE, color = "red") +
+  scale_y_log10(labels = scales::dollar, limits = c(50000, 1000000)) +
+  labs(
+    title = "Sale Price vs. Building Age (based on Year Built)",
+    x = "Building Age (Years)",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+This scatterplot highlights a clear nonlinear relationship between building age and sale price. For newer properties (0–20 years old), sale prices tend to increase rapidly with age, likely reflecting premium valuations for recently built homes. As buildings reach middle age (approximately 20 to 60 years), this trend levels off, suggesting that buyers value these homes similarly—perhaps due to renovations or stable utility. Beyond 60 years, prices begin to decline modestly, although the drop is not steep. Interestingly, there is a slight uptick in prices for homes over 100 years old, which may be attributed to historic charm or location-based premiums. Overall, the pattern suggests that building age does influence sale price, but in a nonlinear way, indicating that modeling it as a simple linear predictor would miss important nuances.
+
+### Quality
+
+```{r}
+ggplot(full_data, aes(x = Quality, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#3498DB", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Quality", x = "Quality", y = "Sale Price") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+#### Zooming in for more information
+,
+  limits = c(50000, 1000000)
+  
+```{r}
+ggplot(full_data, aes(x = Quality, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#3498DB", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar, limits = c(50000, 1000000)) +
+  labs(title = "Sale Price by Quality", x = "Quality", y = "Sale Price") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+This boxplot shows how sale prices vary by property Quality. There is a generally clear upward trend: as quality ratings increase—from "Fair" and "Low" categories toward "Good," "Very Good," and "Excellent"—the median sale price rises accordingly. Properties rated "Excellent" and "Very Good Plus" have the highest median and upper-range prices, suggesting a strong positive association between higher construction quality and market value.
+
+However, some overlap exists among mid-level categories (e.g., "Average," "Fair Plus," and "Good"), which implies that while quality influences price, it does so alongside other features like size, location, or amenities. Additionally, categories like "Low" and "Low Plus" show wide price ranges, indicating that even homes with lower quality ratings can command high prices under certain conditions—perhaps due to location or redevelopment potential. Overall, this chart supports the conclusion that Quality is a meaningful predictor of price, especially at the high and low ends.
+
+### Condition
+```{r}
+ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#27AE60", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Condition", x = "Condition", y = "Sale Price") +
+  theme_minimal()
+```
+
+#### Zooming in for more information
+
+```{r}
+ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#27AE60", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar, limits = c(50000, 1000000)) +
+  labs(title = "Sale Price by Condition", x = "Condition", y = "Sale Price") +
+  theme_minimal()
+```
+This boxplot shows how sale prices vary by property Condition. Surprisingly, there is no clear or consistent trend where better condition correlates with higher sale prices. For example, properties rated "Extra Poor," "Poor," and even "Uninhabitable" show price distributions that significantly overlap with those in "Fair" or even "Average" condition. This suggests that Condition, as recorded, may not be a strong or independent driver of price, or it may be correlated with other factors that offset its effect — such as location, size, or redevelopment potential. Some higher-condition categories, like "Very Poor" and "Average," do show slightly higher medians, but the variability and wide whiskers imply that condition is not a decisive factor by itself.
+
+
+
+```{r}
+unique(full_data$Quality)
+```
+
+## Multivariate Visualization
+
+1. Do large homes with high quality ratings sell at disproportionately higher prices?
+
+```{r}
+ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3, size = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  scale_y_log10(labels = scales::dollar) +
+  facet_wrap(~ Quality, scales = "free") +
+  labs(title = "Sale Price vs. Square Feet by Quality",
+       x = "Square Feet", y = "Sale Price") +
+  theme_minimal()
+```
+
+This faceted scatterplot shows the relationship between square footage and sale price across different Quality categories, each with a red linear trend line. In every panel, the trend line has a positive slope, indicating that larger homes tend to sell for higher prices, regardless of quality rating. However, the strength of the relationship varies—it's steeper and more consistent in categories like "Good", "Fair Plus", and "Average", while flatter or noisier in smaller groups like "Very Good Plus" and "Excellent", where sample sizes are lower. Overall, this confirms that size positively influences price across quality levels, but the magnitude and consistency of that effect depend on the quality tier.
+
+
+2. Do pricing patterns by size differ across neighborhoods?
+
+```{r}
+top_neigh <- full_data %>%
+  count(Neighborhood) %>%
+  top_n(5) %>%
+  pull(Neighborhood)
+
+filtered_data <- full_data %>%
+  filter(Neighborhood %in% top_neigh) 
+
+filtered_data %>%
+  filter(!is.na(Quality), !is.na(Neighborhood)) %>%
+  ggplot(aes(x = Quality, y = Sale_Price_Raw)) +
+  geom_boxplot(outlier.shape = NA, fill = "#3498DB", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(
+    title = "Sale Price by Quality across Neighborhoods",
+    x = "Quality",
+    y = "Sale Price"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 9)
+  ) +
+  facet_wrap(~Neighborhood, scales = "free_y")
+
+```
+This faceted boxplot visualizes how sale price varies by Quality across several neighborhoods in Pierce County. Each panel represents a distinct neighborhood, and within each panel, boxplots show the distribution of sale prices for different quality ratings (e.g., Average, Good, Very Good Plus).
+
+Across most neighborhoods, there is a consistent pattern: higher quality ratings tend to be associated with higher sale prices, though the strength of this relationship varies. For example, neighborhoods like 120703 and 040301 show a clear price gradient from "Fair" to "Very Good Plus", whereas in others like 010801, the pattern is weaker or distorted by outliers and limited variation in quality categories. Some neighborhoods display significant spread and overlap between adjacent quality levels, suggesting that quality alone doesn't fully explain price variation without accounting for other factors such as size, location, or view.
+
+Overall, the plot confirms that Quality is positively associated with price, but this relationship is neighborhood-dependent and not uniform across the county.
+
+
+3. How does the combination of condition and quality affect price?
+
+```{r}
+full_data %>%
+  group_by(Condition, Quality) %>%
+  summarise(
+    median_pps = median(Sale_Price_Raw / Square_Feet_Raw, na.rm = TRUE),
+    n = n()
+  ) %>%
+  arrange(desc(median_pps)) %>%
+  knitr::kable()
+```
+
+This table shows the median price per square foot (median_pps) across combinations of Condition and Quality, along with the number of observations (n) for each pair. The highest median prices are associated with a mix of high quality and either average or even poor condition, such as "Average" condition with "Excellent" quality or "Very Good Plus" quality, suggesting that quality plays a dominant role in driving price per square foot. Interestingly, some combinations with lower condition ratings, such as "Very Poor" or "Uninhabitable", still command relatively high prices when paired with higher quality, likely reflecting rare or niche properties, though many of these have very small sample sizes. In contrast, common pairings like "Average" condition with "Average" or "Fair Plus" quality show much lower median values (~$130–$175), reinforcing that higher prices are concentrated in rarer, better-quality segments. Overall, the data indicates that quality has a stronger and more consistent influence on price than condition, especially in common residential cases.
+
+4. Does higher view quality lead to higher price per sqft, after accounting for size?
+
+```{r}
+full_data %>%
+  mutate(Size_Bin = cut(Square_Feet_Raw, breaks = c(0, 1500, 2500, 3500, Inf), 
+                        labels = c("<1500", "1500–2500", "2500–3500", "3500+"))) %>%
+  filter(!is.na(View_Quality), !is.na(Size_Bin)) %>%
+  ggplot(aes(x = View_Quality, y = Sale_Price_Raw / Square_Feet_Raw)) +
+  geom_boxplot(aes(fill = View_Quality), outlier.shape = NA) +
+  facet_wrap(~ Size_Bin, scales = "free_y") +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(title = "Price per Sqft by View Quality Across Home Sizes",
+       y = "Price per Sqft", x = "View Quality") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+This faceted boxplot shows how price per square foot varies by view quality across four home size groups. For homes between 1500–2500 sq ft and 2500–3500 sq ft, higher view quality (especially “View Good+” and “View V-Good”) is clearly associated with higher prices per square foot. In the largest homes (3500+), the pattern is less consistent, and for homes under 1500 sq ft, data appears missing or invalid. Overall, view quality has a stronger pricing effect in mid-sized homes, while variation increases in very large properties.
+
+
+5. Are price patterns different in denser vs. rural areas (by Latitude)?
+
+```{r}
+
+full_data %>%
+  mutate(Region = ifelse(Latitude_Raw > 47.1, "North", "South")) %>%  
+  # Pierce County spans roughly from 46.8°N to 47.4°N latitude. 
+  #So, 47.1 is approximately the midpoint of the county’s north–south range.
+  ggplot(aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3, size = 0.5) +
+  geom_smooth(method = "loess", color = "red") +
+  facet_wrap(~ Region, scales = "free") +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Price vs. Size in North vs. South Pierce County",
+       x = "Square Feet", y = "Sale Price") +
+  theme_minimal()
+
+```
+This faceted scatterplot compares the relationship between square footage and sale price in the North vs. South regions of Pierce County. Both panels show a clear positive trend: larger homes tend to sell for more. However, the relationship is nonlinear in both areas.
+
+In the North, the price increases with square footage up to around 6,000–7,000 sq ft, then slightly levels off or declines. In the South, a similar pattern occurs, though the curve appears a bit flatter at the top end, and confidence intervals widen—indicating more variability or fewer large homes.
+
+Overall, the North shows slightly stronger price growth with size and potentially higher valuations at the upper range, suggesting location plays an important role in how square footage translates to market value.
+
+6. Who’s in the top 1% of price per sqft? What are they like?
+
+
+```{r}
+threshold <- quantile(full_data$Sale_Price_Raw / full_data$Square_Feet_Raw, 0.99, na.rm = TRUE)
+
+full_data %>%
+  mutate(PPS = Sale_Price_Raw / Square_Feet_Raw) %>%
+  filter(PPS >= threshold) %>%
+  count(Quality, Condition, View_Quality, sort = TRUE) %>%
+  knitr::kable()
+```
+
+This table shows the combinations of Quality, Condition, and View_Quality for the top 1% of homes by price per square foot. Here's what stands out:
+
+- The most common profiles are mid- or low-quality and condition homes with missing view data — e.g., “Average” or “Fair” quality and condition, and View_Quality = NA.
+
+- Surprisingly, very few of these high-pps properties have a defined view rating, even though view is typically associated with premium pricing.
+
+- There are many one-off combinations (n = 1 or 2), often mixing moderate quality/condition with specific views like “View Good” or “View V-Good”.
+
+- A few entries include very low condition levels (e.g., “Uninhabitable” or “Very Poor”), which may indicate small homes, land-only listings, teardown opportunities, or data anomalies—all of which can inflate price per sqft.
+
+In conclusion, the top 1% of homes by price per sqft are a diverse and noisy group. Rather than being uniformly luxury or high-end, they appear to include:
+
+1. Compact but expensive properties
+
+2. Homes missing data in key fields
+
+3. Possibly non-traditional or atypical listings
+
+This suggests that high price per square foot doesn't necessarily reflect luxury, but could be driven by small size, location premiums, or outlier transaction types.
+
 
 # 6. Close DuckDB Connection (End of Session)
 
