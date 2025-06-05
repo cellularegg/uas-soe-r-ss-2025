@@ -1,5 +1,5 @@
 ---
-title: "Linear Regression"
+title: "Linear Regression (incl. Lasso)"
 author: "B1_Pierce-House-Price"
 date: "today"
 format: 
@@ -882,10 +882,7 @@ library(Metrics)
 
 set.seed(123)
 
-# Standardize numeric predictors (except target)
-numeric_cols <- c("Square_Feet_Raw", "Bedrooms_Raw", "Stories_Raw",
-                  "Latitude_Raw", "Longitude_Raw", "Year_Built_Raw")
-trimmed_data[numeric_cols] <- scale(trimmed_data[numeric_cols])
+trimmed_data <- droplevels(trimmed_data)
 
 #Train/test split
 split_idx <- sample(1:nrow(trimmed_data), 0.8 * nrow(trimmed_data))
@@ -919,7 +916,7 @@ x_train <- model.matrix(Sale_Price_Raw ~ ., train)[, -1]
 y_train <- train$Sale_Price_Raw
 x_test <- model.matrix(Sale_Price_Raw ~ ., test)[, -1]
 y_test <- test$Sale_Price_Raw
-
+# Already standardized manually — disable glmnet's internal standardization
 cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, standardize = FALSE)
 lasso_pred <- predict(cv_lasso, s = "lambda.min", newx = x_test)
 
