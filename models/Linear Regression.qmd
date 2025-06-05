@@ -392,7 +392,6 @@ full_data <- full_data %>%
     Neighborhood,
     View_Quality,
     Year_Built_Raw,
-    Adjusted_Year_Built_Raw,
     Quality,
     Condition,
     Utility_Water,
@@ -424,7 +423,6 @@ full_data <- full_data %>%
     Latitude_Raw = as.numeric(Latitude_Raw),
     Longitude_Raw = as.numeric(Longitude_Raw),
     Year_Built_Raw = as.numeric(Year_Built_Raw),
-    Adjusted_Year_Built_Raw = as.numeric(Adjusted_Year_Built_Raw),
     Neighborhood = as.factor(Neighborhood),
     View_Quality = as.factor(View_Quality),
     Quality = as.factor(Quality),
@@ -434,22 +432,518 @@ full_data <- full_data %>%
     Street_Type = as.factor(Street_Type),
     Utility_Electric = as.factor(Utility_Electric)
   )
+```
 
-# Drop rows with any missing values (can replace with imputation if desired)
-full_data <- full_data %>% tidyr::drop_na()
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
 
-# Standardize numeric features
-numeric_vars <- c(
-  "Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw", "Stories_Raw",
-  "Latitude_Raw", "Longitude_Raw", "Year_Built_Raw", "Adjusted_Year_Built_Raw"
-)
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
 
-full_data[numeric_vars] <- scale(full_data[numeric_vars])
+```
 
+
+
+```{r}
+# Drop View_Quality entirely
+full_data <- full_data %>% select(-View_Quality)
+
+# Convert to numeric (if not already done)
+full_data <- full_data %>%
+  mutate(
+    Bedrooms_Raw = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw = as.numeric(Bathrooms_Raw),
+    Stories_Raw = as.numeric(Stories_Raw)
+  )
+
+# Impute missing values
+# Use median for numeric columns
+full_data$Bedrooms_Raw[is.na(full_data$Bedrooms_Raw)] <- median(full_data$Bedrooms_Raw, na.rm = TRUE)
+full_data$Bathrooms_Raw[is.na(full_data$Bathrooms_Raw)] <- median(full_data$Bathrooms_Raw, na.rm = TRUE)
+full_data$Stories_Raw[is.na(full_data$Stories_Raw)] <- median(full_data$Stories_Raw, na.rm = TRUE)
+```
+
+
+
+```{r}
 # View structure and summary after preprocessing
 str(full_data)
 summary(full_data)
 ```
+
+### Standardization
+
+```{r}
+numeric_vars <- c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw", 
+                  "Stories_Raw", "Latitude_Raw", "Longitude_Raw", "Year_Built_Raw")
+
+full_data[numeric_vars] <- scale(full_data[numeric_vars])
+```
+
+
+
+
+# Baseline Linear Model
+
+```{r}
+lm_model <- lm(Sale_Price_Raw ~ ., data = full_data)
+summary(lm_model)
+```
+With 205 neighborhoods, the linear regression summary becomes nearly unreadable, and model interpretability and generalization both suffer due to:
+
+High dimensionality from one-hot encoding
+
+Multicollinearity across neighborhoods
+
+Many sparse levels (some with <50 observations)
+
+
+## Collapse Rare Neighborhoods
+
+```{r}
+library(forcats)
+
+# Collapse neighborhoods with <100 observations
+full_data$Neighborhood <- fct_lump_min(full_data$Neighborhood, min = 100, other_level = "Other")
+```
+
+
+```{r}
+full_data$Neighborhood <- fct_lump_n(full_data$Neighborhood, n = 20)
+```
+
+
+
+## Model Refit
+
+```{r}
+# Refit after collapsing Neighborhood
+lm_model_clean <- lm(Sale_Price_Raw ~ ., data = full_data)
+summary(lm_model_clean)
+```
+This linear regression model aims to predict residential property sale prices in Pierce County using structural, locational, and utility-related features. The model explains approximately 25.5% of the variance in sale price (adjusted R² = 0.2547), which is typical for real estate data with complex, unobserved factors (e.g., seller motivation, interior renovations). The most influential predictors include square footage (strong positive effect), quality rating (with “Excellent” and “Very Good Plus” properties commanding significantly higher prices), and the number of bathrooms and bedrooms, which have expected directional effects. Geographic coordinates and select neighborhoods also contribute meaningfully, though the majority have been collapsed into a general “Other” category for simplicity. Some utility and street characteristics are statistically significant (e.g., paved vs. unpaved roads), but others are weakly informative or redundant. Overall, the model captures key drivers of price variation and offers a reliable baseline for comparison with more complex models.
+
+
+
+# Feature Selection (Stepwise)
+
+```{r}
+if (!require(MASS)) install.packages("MASS")
+library(MASS)
+step_model <- stepAIC(lm_model_clean, direction = "both")
+summary(step_model)
+```
+
+This refined linear regression model predicts residential sale prices based on 45 carefully selected predictors. Using stepwise AIC-based selection, the model retains only features that provide measurable value, leading to a more interpretable and parsimonious fit. The adjusted R² is ~0.255, indicating the model explains about 25.5% of price variance—which is reasonable for tabular real estate data.
+
+Among the most significant predictors:
+
+- Square footage is positively correlated with price (coefficient: ~54,500 per SD).
+
+- More bathrooms increase value, while more bedrooms have a negative effect (likely due to room count capturing older or less efficient layouts).
+
+- Geographic coordinates (latitude and longitude) also impact value, likely reflecting proximity to key amenities or desirability zones.
+
+- Quality ratings such as “Excellent” or “Very Good Plus” have strong positive effects—up to $1.2M or more, underscoring the market premium for high construction quality.
+
+- Certain neighborhoods significantly raise or lower prices, while others are pooled under “Other” for statistical stability.
+
+- Unpaved streets have a significant negative association with price.
+
+- The Year Built is positively associated, suggesting newer homes command higher values.
+
+- Some factors—like certain conditions, utility details, or minor neighborhood levels—remain in the model but are not statistically significant, likely retained for marginal AIC improvement.
+
+# Model Evaluation
+
+```{r}
+par(mfrow = c(2, 2))
+plot(lm_model_clean)  # or step_model if using that one
+```
+The residual vs. fitted plot (top-left) shows non-random patterns and heteroskedasticity (i.e., increasing spread with fitted values), suggesting the model’s variance isn't constant across all price ranges — particularly at higher price points. The Q-Q plot (top-right) reveals non-normal residuals, with a heavy tail on the right, indicating the presence of outliers or skewness (especially in high-value sales). The scale-location plot (bottom-left) confirms the heteroskedasticity, as the red line trends upward, showing that residual variance increases with predicted price. Lastly, the residuals vs. leverage plot (bottom-right) identifies a few high-leverage and high-residual points (e.g., observations like 1852 and 14769), which could have a disproportionate impact on model estimates — these might be extreme or unusual sales.
+
+
+
+# Residual Distribution
+
+```{r}
+hist(resid(step_model), breaks = 50, main = "Residual Histogram")
+```
+
+
+#  RMSE and MAE (Out-of-Sample)
+
+```{r}
+set.seed(123)
+split_idx <- sample(1:nrow(full_data), 0.8 * nrow(full_data))
+train <- full_data[split_idx, ]
+test <- full_data[-split_idx, ]
+
+model <- lm(Sale_Price_Raw ~ ., data = train)
+pred <- predict(model, newdata = test)
+
+# Metrics
+RMSE <- sqrt(mean((pred - test$Sale_Price_Raw)^2))
+MAE <- mean(abs(pred - test$Sale_Price_Raw))
+R2 <- 1 - sum((pred - test$Sale_Price_Raw)^2) / sum((test$Sale_Price_Raw - mean(test$Sale_Price_Raw))^2)
+
+cat(sprintf("RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+
+```
+
+The evaluation of your linear regression model on the test set yielded an RMSE of approximately $272,000, an MAE of around $173,700, and an R² of 0.255. These results indicate that the model can explain about 25.5% of the variance in sale prices. While this is a decent baseline for structured housing data, the relatively high RMSE suggests that prediction errors can be substantial, especially in higher-priced homes. The model is likely affected by multicollinearity (e.g., between bedrooms and bathrooms), the presence of outliers, and potentially non-informative variables. To improve robustness and generalization, Lasso regression is a logical next step. It applies L1 regularization, which not only reduces overfitting but also automatically selects variables by shrinking some coefficients to zero—thereby addressing multicollinearity and improving model simplicity without sacrificing much predictive power.
+
+
+
+# Lasso + Outlier Handling
+```{r}
+# Load required packages
+if (!require(glmnet)) install.packages("glmnet")
+if (!require(model.matrix)) install.packages("model.matrix")
+library(glmnet)
+
+# Optional: remove outliers based on standardized residuals from a basic model
+base_lm <- lm(Sale_Price_Raw ~ ., data = full_data)
+std_resid <- rstandard(base_lm)
+full_data_clean <- full_data[abs(std_resid) < 3, ]
+
+# Split data
+set.seed(123)
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
+
+# Prepare data for glmnet
+x_train <- model.matrix(Sale_Price_Raw ~ ., data = train)[, -1]
+y_train <- train$Sale_Price_Raw
+
+x_test <- model.matrix(Sale_Price_Raw ~ ., data = test)[, -1]
+y_test <- test$Sale_Price_Raw
+
+# Fit Lasso with CV to find optimal lambda
+set.seed(123)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+
+# Best lambda
+best_lambda <- cv_lasso$lambda.min
+
+# Fit final Lasso model
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Predict on test set
+pred_lasso <- predict(lasso_model, s = best_lambda, newx = x_test)
+
+# Evaluate
+RMSE <- sqrt(mean((pred_lasso - y_test)^2))
+MAE <- mean(abs(pred_lasso - y_test))
+R2 <- 1 - sum((pred_lasso - y_test)^2) / sum((y_test - mean(y_test))^2)
+
+cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n", RMSE, MAE, R2))
+
+# View non-zero coefficients
+cat("Selected predictors (non-zero coefficients):\n")
+print(coef(lasso_model)[coef(lasso_model) != 0])
+```
+
+The Lasso regression achieved an RMSE of approximately $201,200, an MAE of $153,994, and an R² of 0.303 on the test set. This indicates the model explains about 30.3% of the variance in sale prices, outperforming the earlier linear model (which had an R² of 0.255). The reduction in both RMSE and MAE suggests more accurate and stable predictions, especially after addressing outliers and applying regularization. Importantly, Lasso shrunk many coefficients to zero, leaving only ~40 predictors in the final model—improving interpretability and robustness. This confirms that Lasso effectively reduced model complexity, mitigated multicollinearity, and highlighted the most impactful variables (e.g., square footage, year built, and several Quality levels).
+
+
+# Stepwise + Log-Transformed Price
+
+```{r}
+# Log-transform the target
+full_data$Log_Sale_Price <- log(full_data$Sale_Price_Raw)
+
+# Optional: remove outliers using standardized residuals
+lm_base <- lm(Log_Sale_Price ~ ., data = full_data[, !names(full_data) %in% c("Sale_Price_Raw")])
+std_resid <- rstandard(lm_base)
+full_data_clean <- full_data[abs(std_resid) < 3, ]
+
+# Split
+set.seed(123)
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
+
+# Stepwise selection
+full_formula <- as.formula("Log_Sale_Price ~ .")
+model_full <- lm(full_formula, data = train[, !names(train) %in% c("Sale_Price_Raw")])
+model_step <- step(model_full, direction = "both", trace = FALSE)
+
+# Predict and back-transform
+log_preds <- predict(model_step, newdata = test)
+preds <- exp(log_preds)
+actuals <- exp(test$Log_Sale_Price)
+
+# Evaluate
+RMSE <- sqrt(mean((preds - actuals)^2))
+MAE <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Stepwise Log-LM RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+```
+The stepwise linear regression model using log-transformed sale prices (Log_Sale_Price_Raw) achieved an RMSE of approximately $268,614, an MAE of around $161,711, and an R² of 0.266 when predictions were back-transformed to the original price scale. These results indicate a modest improvement over the initial linear model on raw prices and suggest that the log transformation helped slightly reduce prediction error and stabilize variance. However, the model still explains only about 26.6% of the variance in housing prices, implying that other factors or nonlinear relationships remain unaccounted for. Compared to the Lasso model (which had better RMSE, MAE, and R²), stepwise regression is slightly less effective, likely due to its inability to handle multicollinearity and regularize coefficients. Nonetheless, it serves as a useful baseline and confirms that the log transformation is beneficial.
+
+# Full Lasso Pipeline with Log-Transformed Target
+
+```{r}
+# Load required library
+library(glmnet)
+
+# Log-transform target
+full_data$Log_Sale_Price <- log(full_data$Sale_Price_Raw)
+
+# Optional: remove outliers using standardized residuals on log scale
+base_lm <- lm(Log_Sale_Price ~ ., data = full_data[, !names(full_data) %in% c("Sale_Price_Raw")])
+std_resid <- rstandard(base_lm)
+full_data_clean <- full_data[abs(std_resid) < 3, ]
+
+# Train-test split
+set.seed(123)
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
+
+# Prepare matrices
+x_train <- model.matrix(Log_Sale_Price ~ ., data = train[, !names(train) %in% c("Sale_Price_Raw")])[, -1]
+y_train <- train$Log_Sale_Price
+
+x_test <- model.matrix(Log_Sale_Price ~ ., data = test[, !names(test) %in% c("Sale_Price_Raw")])[, -1]
+y_test <- test$Log_Sale_Price
+
+# Lasso CV
+set.seed(123)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+
+# Final model
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Predict and transform back
+log_preds <- predict(lasso_model, s = best_lambda, newx = x_test)
+preds <- exp(log_preds)
+
+# Evaluate on original price scale
+actuals <- exp(y_test)
+RMSE <- sqrt(mean((preds - actuals)^2))
+MAE <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Log-Transformed Lasso RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+
+# Non-zero coefficients
+cat("Selected predictors (non-zero coefficients):\n")
+print(coef(lasso_model)[coef(lasso_model) != 0])
+```
+
+The Lasso regression model built on log-transformed sale prices returned an RMSE of approximately $269,625, MAE of $161,591, and an R² of 0.260 after predictions were back-transformed. Surprisingly, this model performed slightly worse than the original Lasso model without log transformation (which had an RMSE of ~$201K and R² of 0.303). Despite the expected benefits of stabilizing variance and reducing skewness via the log transform, this result suggests that the original model better captured the underlying structure of sale prices. The poorer performance may be due to information loss when back-transforming predictions, or that outliers and heteroscedasticity weren’t severe enough to justify the transformation. It also highlights that Lasso's regularization alone was already effective at managing variance and complexity without needing to transform the target variable.
+
+
+# Multicollinearity Check
+
+```{r}
+library(car)
+vif(step_model)
+```
+The VIF analysis shows that most predictors in the linear model do not suffer from problematic multicollinearity. However, Bathrooms_Raw (VIF ≈ 5.5) and Bedrooms_Raw (VIF ≈ 4.6) exhibit moderate multicollinearity, likely due to their natural correlation in residential properties—larger homes tend to have more of both. While these values are not critically high, they suggest some redundancy. Geographic features like Latitude_Raw and Longitude_Raw also show mild correlation but remain within acceptable bounds. Categorical variables such as Neighborhood, Quality, and Condition display low generalized VIFs, indicating they contribute independently to the model. Overall, multicollinearity is not a major issue here, though combining related features or using regularization methods like Lasso regression could further enhance model robustness and interpretability.
+
+```{r}
+# Load necessary library
+library(ggcorrplot)
+
+# Subset only numeric predictors
+numeric_data <- full_data[, c("Sale_Price_Raw", "Square_Feet_Raw", "Bedrooms_Raw", 
+                              "Bathrooms_Raw", "Stories_Raw", "Latitude_Raw", "Longitude_Raw")]
+
+# Compute correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+# Plot correlation matrix
+ggcorrplot(cor_matrix,
+           method = "circle",
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("red", "white", "blue"),
+           title = "Correlation Matrix of Numeric Predictors",
+           ggtheme = theme_minimal())
+
+```
+Decision Rule
+- Remove the variable with higher avg. abs. correlation.
+
+- If they’re close, consider which one is more interpretable or has stronger individual correlation with sale price.
+
+```{r}
+# Compute correlation matrix
+cor_matrix <- cor(full_data[, c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw",
+                                "Stories_Raw", "Latitude_Raw", "Longitude_Raw", "Sale_Price_Raw")],
+                  use = "complete.obs")
+
+# Compute average absolute correlation for each variable
+avg_abs_corr <- apply(cor_matrix, 2, function(x) mean(abs(x[x != 1])))
+
+# Sort descending
+sort(avg_abs_corr, decreasing = TRUE)
+```
+Decision: Remove Bathrooms_Raw from your model going forward. It’s highly correlated with both Bedrooms_Raw and Square_Feet_Raw, and contributes more to collinearity.
+
+```{r}
+library(dplyr)
+
+full_data <- full_data %>% dplyr::select(-Bathrooms_Raw)
+
+```
+
+```{r}
+str(full_data)
+summary(full_data$Sale_Price_Raw)
+```
+
+
+# Updated Linear Model (OLS) Without Bathrooms_Raw
+
+```{r}
+
+# Train-test split
+set.seed(123)
+split_idx <- sample(1:nrow(full_data), 0.8 * nrow(full_data))
+train <- full_data[split_idx, ]
+test <- full_data[-split_idx, ]
+
+# Fit OLS model
+lm_model <- lm(Sale_Price_Raw ~ ., data = train)
+pred <- predict(lm_model, newdata = test)
+
+# Evaluate
+RMSE <- sqrt(mean((pred - test$Sale_Price_Raw)^2))
+MAE <- mean(abs(pred - test$Sale_Price_Raw))
+R2 <- 1 - sum((pred - test$Sale_Price_Raw)^2) / sum((test$Sale_Price_Raw - mean(test$Sale_Price_Raw))^2)
+
+cat(sprintf("OLS (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+
+```
+After removing Bathrooms_Raw due to its high multicollinearity with Bedrooms_Raw, the ordinary least squares (OLS) model achieved a significantly improved performance. The RMSE dropped to ~$162,013, the MAE to ~$80,737, and the R² rose dramatically to 0.736, meaning the model now explains approximately 73.6% of the variance in sale prices — a major improvement over earlier versions. This suggests that eliminating redundant predictors enhanced the model’s stability and interpretability. The lower error metrics indicate much more accurate predictions, while the higher R² confirms a stronger overall fit. Importantly, this demonstrates that simplifying the model by removing correlated features can be just as powerful as complex tuning or regularization.
+
+# Updated Lasso Model Without Bathrooms_Raw
+
+```{r}
+# Split
+set.seed(123)
+split_idx <- sample(1:nrow(full_data), 0.8 * nrow(full_data))
+train <- full_data[split_idx, ]
+test <- full_data[-split_idx, ]
+
+# Prepare data
+x_train <- model.matrix(Sale_Price_Raw ~ ., data = train)[, -1]
+y_train <- train$Sale_Price_Raw
+x_test <- model.matrix(Sale_Price_Raw ~ ., data = test)[, -1]
+y_test <- test$Sale_Price_Raw
+
+# Cross-validated Lasso
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Predict & evaluate
+pred <- predict(lasso_model, s = best_lambda, newx = x_test)
+RMSE <- sqrt(mean((pred - y_test)^2))
+MAE <- mean(abs(pred - y_test))
+R2 <- 1 - sum((pred - y_test)^2) / sum((y_test - mean(y_test))^2)
+
+cat(sprintf("Lasso (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+
+# Optional: show non-zero coefficients
+cat("Selected predictors:\n")
+print(coef(lasso_model)[coef(lasso_model) != 0])
+```
+The Lasso regression model, retrained after removing the multicollinear Bathrooms_Raw feature, achieved very strong results — virtually identical to the refined OLS model. It posted an RMSE of ~$161,843, an MAE of ~$80,568, and an R² of 0.736, indicating that the model captures 73.6% of the variation in sale prices. These metrics confirm that the Lasso model provides accurate and reliable predictions, while also benefiting from its regularization strength by automatically selecting only a subset of important predictors. This sparsity improves interpretability and reduces overfitting risk. The selected variables include key structural and locational factors, as well as neighborhood and quality indicators, suggesting a robust and balanced feature selection. In summary, Lasso performs just as well as the simplified OLS, but with added feature parsimony, making it an excellent choice when prioritizing generalizability and variable selection.
+
+
+# Removing Sale Price Outliers Using Quantiles
+
+```{r}
+# Remove top and bottom 1% of prices
+q_low <- quantile(full_data$Sale_Price_Raw, 0.01)
+q_high <- quantile(full_data$Sale_Price_Raw, 0.99)
+
+trimmed_data <- full_data %>%
+  filter(Sale_Price_Raw >= q_low, Sale_Price_Raw <= q_high)
+```
+
+```{r}
+# Load necessary libraries
+library(caret)
+library(Metrics)
+
+set.seed(123)
+
+# Standardize numeric predictors (except target)
+numeric_cols <- c("Square_Feet_Raw", "Bedrooms_Raw", "Stories_Raw",
+                  "Latitude_Raw", "Longitude_Raw", "Year_Built_Raw")
+trimmed_data[numeric_cols] <- scale(trimmed_data[numeric_cols])
+
+#Train/test split
+split_idx <- sample(1:nrow(trimmed_data), 0.8 * nrow(trimmed_data))
+train <- trimmed_data[split_idx, ]
+test <- trimmed_data[-split_idx, ]
+
+
+```
+```{r}
+str(trimmed_data)
+```
+
+```{r}
+# OLS model
+ols_model <- lm(Sale_Price_Raw ~ ., data = train)
+ols_pred <- predict(ols_model, newdata = test)
+
+ols_rmse <- rmse(test$Sale_Price_Raw, ols_pred)
+ols_mae <- mae(test$Sale_Price_Raw, ols_pred)
+ols_r2 <- R2(ols_pred, test$Sale_Price_Raw)
+
+cat(sprintf("OLS (outliers removed)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\n\n", 
+            ols_rmse, ols_mae, ols_r2))
+
+```
+
+
+```{r}
+# Lasso model
+x_train <- model.matrix(Sale_Price_Raw ~ ., train)[, -1]
+y_train <- train$Sale_Price_Raw
+x_test <- model.matrix(Sale_Price_Raw ~ ., test)[, -1]
+y_test <- test$Sale_Price_Raw
+
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, standardize = FALSE)
+lasso_pred <- predict(cv_lasso, s = "lambda.min", newx = x_test)
+
+lasso_rmse <- rmse(y_test, lasso_pred)
+lasso_mae <- mae(y_test, lasso_pred)
+lasso_r2 <- R2(lasso_pred, y_test)
+
+cat(sprintf("Lasso (outliers removed)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", 
+            lasso_rmse, lasso_mae, lasso_r2))
+
+```
+
+
+# Conclusion
+
+After a comprehensive modeling workflow — including preprocessing, feature engineering, outlier removal, and model tuning — we achieved exceptional performance in predicting residential sale prices. The final OLS and Lasso models, trained on data with extreme sale prices removed, both yielded RMSE values around $83,800, MAE near $57,800, and R² of 0.871. This means the model explains nearly 87% of the variance in home prices — an impressively high proportion for real-world property data.
+
+The step that led to the biggest improvement was removing the top and bottom 1% of sale prices, which reduced noise and allowed the models to generalize better across typical homes. While earlier models (especially with unscaled or unfiltered prices) struggled with error magnitudes over $200,000, this cleaned and focused dataset provided a far more stable learning environment.
+
+The similarity in performance between OLS and Lasso suggests that regularization was not heavily needed, as feature selection stabilized once outliers were removed and multicollinearity was addressed. In this case, a simpler linear model (OLS) may be preferred for its interpretability and ease of use in deployment, without sacrificing accuracy.
+
+In conclusion, this model — built on thoughtfully selected features and rigorous data cleansing — offers a highly reliable baseline for property price prediction in this dataset. Further refinements could include nonlinear models or interaction effects.
+
+
 
 
 
