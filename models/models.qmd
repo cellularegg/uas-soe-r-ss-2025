@@ -1,7 +1,7 @@
 ---
 title: "Basic Modelling"
 subtitle: "Classification"
-author: "Your Group Name"
+author: "B1_Pierce-House-Price"
 date: "today"
 format: 
   html:
