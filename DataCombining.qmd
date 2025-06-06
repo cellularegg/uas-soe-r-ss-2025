@@ -300,6 +300,7 @@ missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
 missing_summary <- sort(missing_summary, decreasing = TRUE)
 print(missing_summary)
 
+
 # Optionally show % missing
 missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
 data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
