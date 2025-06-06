@@ -41,7 +41,7 @@ library(kableExtra)
 
 # Source our custom data loading function
 # The path is relative to the Quarto document's location (reports/)
-source("../R/00_load_data_functions.R")
+source("../../R/00_load_data_functions.R")
 
 ```
 
@@ -58,7 +58,7 @@ Here, we define the locations of our raw data files and the column names for eac
 # For Quarto rendering, it's often best to assume the project root is the working directory.
 # Let's construct paths assuming the Quarto doc is in 'reports/' and data is in 'data/raw/'
 # relative to a common project root.
-project_root_relative_data_path <- "../data/raw/" # Path from 'reports/' dir to 'data/raw/'
+project_root_relative_data_path <- "../../data/raw/" # Path from 'reports/' dir to 'data/raw/'
 
 file_paths_list <- list(
   sale = paste0(project_root_relative_data_path, "sale.txt"),
@@ -157,6 +157,7 @@ if (!all(names(col_names_lists) %in% names(file_paths_list))) {
   stop("Mismatch between col_names_lists and file_paths_list. Ensure every column name definition has a corresponding file.")
 }
 ```
+
 
 ## Initialize DuckDB Connection
 
