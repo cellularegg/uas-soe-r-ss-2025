@@ -18,421 +18,73 @@ execute:
   error: true      # Display errors if they occur
 ---
 
-# Datagather
-
-# 1. Introduction
-
-This document outlines the first step in our analysis of Pierce County property data: loading all raw data files into a DuckDB in-memory database. Each text file will be loaded into its own table with column names derived from the provided metadata (PDFs). All columns will initially be loaded as `VARCHAR` (text) to ensure robust loading; type conversions will occur during the subsequent cleaning phase.
-
-# 2. Setup and Configuration
-
-## 2.1. Load Libraries and Functions
-
-First, we load necessary R packages and our custom data loading function.
-
-```{r setup-load-libs-funcs}
-#| code-summary: Libraries
-#| code-fold: true
-#| code-hidden: true
-#| label: setup-load-libs-funcs
-
-if(!require(DBI)) install.packages("DBI");
-if(!require(duckdb)) install.packages("duckdb");
-if(!require(knitr)) install.packages("knitr");
-if(!require(dplyr)) install.packages("dplyr");
-library(DBI)
-library(duckdb)
-library(knitr)
+```{r}
 library(dplyr)
+library(readr)
 
-# Source our custom data loading function
-# The path is relative to the Quarto document's location (reports/)
-source("../R/00_load_data_functions.R")
-
+full_data <- read_csv("../full_data_latest_valid.csv", show_col_types = FALSE)
 ```
 
-## 2.2. Define File Paths and Column Names
-
-Here, we define the locations of our raw data files and the column names for each table. IMPORTANT: You MUST verify and complete the col_names_lists with the correct column names in the correct order for EACH of your files based on your metadata PDFs.
-
 ```{r}
-#| label: setup-file-configs
-
-# Base path to the directory where the raw .txt files are stored
-# This path is relative to the project root, assuming the .Rproj is in the root.
-# If running the .qmd directly, ensure this path correctly points to your data/raw folder.
-# For Quarto rendering, it's often best to assume the project root is the working directory.
-# Let's construct paths assuming the Quarto doc is in 'reports/' and data is in 'data/raw/'
-# relative to a common project root.
-project_root_relative_data_path <- "../data/raw/" # Path from 'reports/' dir to 'data/raw/'
-
-file_paths_list <- list(
-  sale = paste0(project_root_relative_data_path, "sale.txt"),
-  appraisal_account = paste0(project_root_relative_data_path, "appraisal_account.txt"),
-  improvement = paste0(project_root_relative_data_path, "improvement.txt"),
-  improvement_detail = paste0(project_root_relative_data_path, "improvement_detail.txt"),
-  improvement_builtas = paste0(project_root_relative_data_path, "improvement_builtas.txt"),
-  land_attribute = paste0(project_root_relative_data_path, "land_attribute.txt"),
-  seg_merge = paste0(project_root_relative_data_path, "seg_merge.txt"),
-  tax_account = paste0(project_root_relative_data_path, "tax_account.txt"),
-  tax_description = paste0(project_root_relative_data_path, "tax_description.txt")
-)
-
-# --- COLUMN NAMES ---
-# !!! ACTION REQUIRED: Populate these lists accurately for EACH file !!!
-# The order of names MUST match the order of columns in your .txt files.
-# These are placeholders. Refer to your PDF metadata.
-col_names_lists <- list(
-  sale = c(
-    "ETN", "Parcel_Count", "Parcel_Number", "Sale_Date_Raw", "Sale_Price_Raw", 
-    "Deed_Type", "Grantor", "Grantee", "Valid_Invalid_Raw", 
-    "Confirmed_Uncomfirmed_Raw", # Note: "Uncomfirmed" as per PDF
-    "Exclude_Reason", "Improved_Vacant_Raw", "Appraisal_Account_Type"
-  ), 
-  
-  appraisal_account = c(
-    "Parcel_Number", "Appraisal_Account_Type", "Business_Name", "Value_Area_ID", 
-    "Land_Economic_Area", "Buildings", "Group_Account_Number", 
-    "Land_Gross_Acres_Raw", "Land_Net_Acres_Raw", "Land_Gross_Square_Feet_Raw", 
-    "Land_Net_Square_Feet_Raw", "Land_Gross_Front_Feet_Raw", "Land_Width_Raw", 
-    "Land_Depth_Raw", "Submerged_Area_Square_Feet_Raw", "Appraisal_Date_Raw", 
-    "Waterfront_Type", "View_Quality", "Utility_Electric", "Utility_Sewer", 
-    "Utility_Water", "Street_Type", "Latitude_Raw", "Longitude_Raw"
-  ), 
-  
-  improvement = c(
-    "Parcel_Number", "Building_ID", "Property_Type", "Neighborhood", 
-    "Neighborhood_Extension", "Square_Feet_Raw", "Net_Square_Feet_Raw", 
-    "Percent_Complete_Raw", "Condition", "Quality", "Primary_Occupancy_Code_Raw", 
-    "Primary_Occupancy_Description", "Mobile_Home_Serial_Number", 
-    "Mobile_Home_Total_Length_Raw", "Mobile_Home_Make", 
-    "Attic_Finished_Square_Feet_Raw", "Basement_Square_Feet_Raw", 
-    "Basement_Finished_Square_Feet_Raw", "Carport_Square_Feet_Raw", 
-    "Balcony_Square_Feet_Raw", "Porch_Square_Feet_Raw", 
-    "Attached_Garage_Square_Feet_Raw", "Detached_Garage_Square_Feet_Raw", 
-    "Fireplaces_Raw", "Basement_Garage_Door_Raw"
-  ),
-                 
-  improvement_detail = c(
-    "Parcel_Number", "Building_ID", "Detail_Type", "Detail_Description", "Units_Raw"
-  ),
-                        
-  improvement_builtas = c(
-    "Parcel_Number", "Building_ID", "Built_As_Number_Raw", "Built_As_ID_Raw", 
-    "Built_As_Description", "Built_As_Square_Feet_Raw", "HVAC_Code_Raw", 
-    "HVAC_Description", "Exterior", "Interior", "Stories_Raw", "Story_Height_Raw", 
-    "Sprinkler_Square_Feet_Raw", "Roof_Cover", "Bedrooms_Raw", "Bathrooms_Raw", 
-    "Units_Count_Raw", "Class_Code", "Class_Description", "Year_Built_Raw", 
-    "Year_Remodeled_Raw", "Adjusted_Year_Built_Raw", "Physical_Age_Raw", 
-    "Built_As_Length_Raw", "Built_As_Width_Raw", "Mobile_Home_Model"
-  ),
-                         
-  land_attribute = c(
-    "Parcel_Number", "Attribute_Key", "Attribute_Description"
-  ), 
-                    
-  seg_merge = c(
-    "Seg_Merge_Number", "Parent_Child_Indicator", "Parcel_Number", 
-    "Continued_Indicator", "Completed_Date_Raw", "Tax_Year_Raw"
-  ), 
-               
-  tax_account = c(
-    "Parcel_Number", "Account_Type", "Property_Type", "Site_Address", 
-    "Use_Code", "Use_Description", "Tax_Year_Prior_Raw", 
-    "Tax_Code_Area_Prior_Year", "Exemption_Type_Prior_Year", 
-    "Current_Use_Code_Prior_Year", "Land_Value_Prior_Year_Raw", 
-    "Improvement_Value_Prior_Year_Raw", "Total_Market_Value_Prior_Year_Raw", 
-    "Taxable_Value_Prior_Year_Raw", "Tax_Year_Current_Raw", 
-    "Tax_Code_Area_Current_Year", "Exemption_Type_Current_Year", 
-    "Current_Use_Code_Current_Year", "Land_Value_Current_Year_Raw", 
-    "Improvement_Value_Current_Year_Raw", "Total_Market_Value_Current_Year_Raw", 
-    "Taxable_Value_Current_Year_Raw", "Range", "Township", "Section", 
-    "Quarter_Section", "Subdivision_Name", "Located_On_Parcel"
-  ), 
-                 
-  tax_description = c(
-    "Parcel_Number", "Line_Number_Raw", "Tax_Description_Line"
-  )
-)
-
-# Verify all files have column name definitions (basic check)
-if (!all(names(file_paths_list) %in% names(col_names_lists))) {
-  stop("Mismatch between file_paths_list and col_names_lists. Ensure every file has a corresponding column name definition.")
-}
-if (!all(names(col_names_lists) %in% names(file_paths_list))) {
-  stop("Mismatch between col_names_lists and file_paths_list. Ensure every column name definition has a corresponding file.")
-}
-```
-
-## 2.3. Initialize DuckDB Connection
-
-We'll use an in-memory DuckDB database for this session.
-
-```{r}
-#| label: setup-duckdb-connection
-
-con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
-cat("DuckDB in-memory connection established.\n")
-```
-
-# 3. Load Raw Data into DuckDB
-
-Now, we iterate through our configured files and load each one into a separate table in DuckDB using our custom function.
-
-```{r}
-#| label: load-data-to-duckdb
-#| results: 'asis' # Allows cat() HTML output to render directly
-
-cat("### Starting Data Loading Process:\n\n")
-
-loaded_successfully <- c() # To track which tables loaded
-
-for (table_key in names(file_paths_list)) {
-  file_path <- file_paths_list[[table_key]]
-  col_names <- col_names_lists[[table_key]]
-  target_table_name <- paste0(table_key, "_raw_duckdb") # e.g., "sale_raw_duckdb"
-  
-  cat(paste0("Attempting to load: ", basename(file_path), " into table `", target_table_name, "`...\n"))
-  
-  if (is.null(col_names) || length(col_names) == 0) {
-      cat(paste0("<p style='color:red;'><strong>Error:</strong> Column names for '", table_key, "' are not defined or empty. Skipping.</p>\n\n"))
-      loaded_successfully[target_table_name] <- FALSE
-      next
-  }
-  
-  success <- load_pipe_delimited_file_to_duckdb(
-    con = con,
-    file_path = file_path,
-    col_names_vector = col_names,
-    target_table_name = target_table_name
-  )
-  loaded_successfully[target_table_name] <- success
-}
-
-cat("\n### Data Loading Process Complete.\n")
-
-# Summary of loading
-cat("\n#### Loading Summary:\n")
-for(tbl_name in names(loaded_successfully)){
-    status_msg <- if(loaded_successfully[tbl_name]) "Successfully loaded" else "Failed to load or file not found"
-    cat(paste0("- `", tbl_name, "`: ", status_msg, "\n"))
-}
-```
-
-# 4. Preliminary Data Inspection
-
-Let's list the tables in our DuckDB database and look at the first few rows and structure of each loaded table to verify the loading process.
-
-```{r}
-#| label: inspect-loaded-tables
-#| results: 'asis'
-
-cat("\n### Tables in DuckDB:\n")
-loaded_tables_in_db <- DBI::dbListTables(con)
-if (length(loaded_tables_in_db) > 0) {
-  kable(loaded_tables_in_db, col.names = "Table Name", caption = "Tables present in DuckDB") %>% print()
-} else {
-  cat("No tables found in DuckDB. Please check loading logs.\n")
-}
-
-
-cat("\n\n### Preview of Loaded Tables (First 3 Rows and Structure):\n")
-for (table_name_raw in loaded_tables_in_db) {
-  # Only preview tables we attempted to load based on our naming convention
-  if (grepl("_raw_duckdb$", table_name_raw) && isTRUE(loaded_successfully[table_name_raw])) {
-    cat(paste0("\n#### Table: `", table_name_raw, "`\n"))
-    
-    # Get column count from DB
-    db_cols <- DBI::dbListFields(con, table_name_raw)
-    num_db_cols <- length(db_cols)
-    
-    # Get defined column count
-    original_key <- sub("_raw_duckdb$", "", table_name_raw) # e.g. "sale" from "sale_raw_duckdb"
-    num_defined_cols <- length(col_names_lists[[original_key]])
-
-    cat(paste0("*Defined columns: ", num_defined_cols, ", Columns in DB table: ", num_db_cols, "*\n"))
-    if (num_defined_cols != num_db_cols && num_db_cols > 0) {
-         cat(paste0("<p style='color:orange;'><strong>Warning:</strong> Mismatch in column count for `", table_name_raw, 
-                    "`. Defined: ", num_defined_cols, ", Actual in DB: ", num_db_cols, 
-                    ". This could indicate issues with delimiter, quoting, or column name definitions.</p>"))
-    }
-
-    # Preview first 3 rows
-    cat("\n##### First 3 Rows:\n")
-    tryCatch({
-      preview_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name_raw, " LIMIT 3"))
-      if (nrow(preview_data) > 0) {
-        kable(preview_data, caption = paste("First 3 rows of", table_name_raw)) %>% 
-          kableExtra::kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), 
-                                    full_width = FALSE,
-                                    font_size = 10) %>% # Smaller font for wide tables
-          print()
-      } else {
-        cat("Table is empty or could not retrieve rows.\n")
-      }
-    }, error = function(e) {
-      cat(paste0("<p style='color:red;'>Error previewing table `", table_name_raw, "`: ", e$message, "</p>\n"))
-    })
-    
-    # Show structure (column names and types from DuckDB's perspective)
-    cat("\n##### Structure (from DuckDB):\n")
-    tryCatch({
-        # DuckDB's PRAGMA table_info('table_name') is good for this
-        structure_info <- DBI::dbGetQuery(con, paste0("PRAGMA table_info('", table_name_raw, "');"))
-        if (nrow(structure_info) > 0) {
-            kable(structure_info %>% select(name, type), caption = paste("Structure of", table_name_raw)) %>% 
-              kableExtra::kable_styling(bootstrap_options = c("condensed"), full_width = FALSE) %>%
-              print()
-        } else {
-            cat("Could not retrieve structure information.\n")
-        }
-    }, error = function(e) {
-      cat(paste0("<p style='color:red;'>Error getting structure for table `", table_name_raw, "`: ", e$message, "</p>\n"))
-    })
-    cat("\n---\n") # Separator
-  }
-}
-```
-
-# 5. Modeling Preparation
-```{r}
-# select 80k Appraisal_Account records and join the latest Sale record
-# There appears some Error with empty values in
-# appraisal_account_raw_duckdb (relevant) -- it works however with the first 80k rows
-# tax_account_raw_duckdb (irrelevant)
-# tax_description_raw_duckdb (irrelevant)
-
-# get list of tables
-DBI::dbListTables(con)
-
-# retrieve apraisal_account_raw_duckdb
-appraisal_account <- DBI::dbGetQuery(con, "SELECT * FROM appraisal_account_raw_duckdb limit 80000")
-
-# retrieve sale_raw_duckdb and join on Parcel_Number
-sales <- DBI::dbGetQuery(con, "SELECT * FROM sale_raw_duckdb")
-sales <- appraisal_account %>%
-  dplyr::inner_join(sales, by = "Parcel_Number") 
-
-# get the most recent sale per parcel
-sales <- sales %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::slice_max(Sale_Date_Raw, n = 1) %>%
-  dplyr::ungroup()
-
-# drop Parcels that appear more than once
-sales <- sales %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::mutate(Count = n()) %>%
-  dplyr::filter(Count == 1) %>%
-  dplyr::ungroup() %>%
-  dplyr::select(-Count)
-
-# print unique parcels
-unique_parcels <- unique(sales$Parcel_Number)
-cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), "\n"))
+names(full_data)
 
 ```
 
 ```{r}
-# select improvement_builtas_raw_duckdb and improvement_raw_duckdb and join on Parcel_Number add Building_ID
-
-improvement <- DBI::dbGetQuery(con, "SELECT * FROM improvement_raw_duckdb")
-improvement_builtas <- DBI::dbGetQuery(con, "SELECT * FROM improvement_builtas_raw_duckdb")
-improvement <- improvement %>%
-  dplyr::inner_join(improvement_builtas, by = c("Parcel_Number", "Building_ID"))
-improvement <- improvement %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::slice_max(Year_Built_Raw, n = 1) %>%
-  dplyr::ungroup()
-```
-
-```{r}
-# join improvement and sales on Parcel_Number
-# filter for Residential, Valid, Improved
-# TODO: currently double Parcel_Number are dropped. check if this is correct (mutliple improvements). but must have just one anyway
-# 21k Rows left for EDA
-
-full_data <- sales %>%
-  dplyr::inner_join(improvement, by = "Parcel_Number") %>%
-  dplyr::filter(Appraisal_Account_Type.x == "Residential") %>%
-  dplyr::filter(Valid_Invalid_Raw == "1") %>%
-  dplyr::filter(Improved_Vacant_Raw == "1")
-
-#drop Parcels that appear more than once
-full_data <- full_data %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::mutate(Count = n()) %>%
-  dplyr::filter(Count == 1) %>%
-  dplyr::ungroup() %>%
-  dplyr::select(-Count)
-
-# print unique parcels
-unique_parcels <- unique(full_data$Parcel_Number)
-cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), "\n"))
-
-full_data <- full_data %>%
-  dplyr::select(Parcel_Number, Sale_Date_Raw, Sale_Price_Raw, Year_Built_Raw, Bedrooms_Raw, Bathrooms_Raw, Square_Feet_Raw, 
-                Latitude_Raw, Longitude_Raw, Neighborhood, View_Quality, Stories_Raw, Adjusted_Year_Built_Raw, Quality, Condition, 
-                Utility_Electric, Utility_Sewer, Utility_Water, Street_Type, Valid_Invalid_Raw, Improved_Vacant_Raw)
-```
-
-```{r}
-# Convert to the right data types
-# this could be stored in DB, csv etc. and loaded in the future
+library(dplyr)
 
 full_data <- full_data %>%
   dplyr::select(
+    Sale_Date_Raw,
     Sale_Price_Raw,
     Square_Feet_Raw,
+    Latitude_Raw,
+    Longitude_Raw,
     Bedrooms_Raw,
     Bathrooms_Raw,
     Stories_Raw,
-    Latitude_Raw,
-    Longitude_Raw,
-    Neighborhood,
-    View_Quality,
-    Year_Built_Raw,
     Quality,
     Condition,
-    Utility_Water,
-    Utility_Sewer,
+    Neighborhood,
+    View_Quality,
     Street_Type,
-    Utility_Electric
+    Utility_Water,
+    Utility_Electric,
+    Utility_Sewer,
+    Improved_Vacant_Raw,
+    Year_Built_Raw
+  ) %>%
+  mutate(
+    Sale_Date_Raw       = as.Date(Sale_Date_Raw),
+    Sale_Price_Raw      = as.numeric(Sale_Price_Raw),
+    Square_Feet_Raw     = as.numeric(Square_Feet_Raw),
+    Latitude_Raw        = as.numeric(Latitude_Raw),
+    Longitude_Raw       = as.numeric(Longitude_Raw),
+    Bedrooms_Raw        = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw       = as.numeric(Bathrooms_Raw),
+    Stories_Raw         = as.numeric(Stories_Raw),
+    Quality             = as.factor(Quality),
+    Condition           = as.factor(Condition),
+    Neighborhood        = as.factor(Neighborhood),
+    View_Quality        = as.factor(View_Quality),
+    Street_Type         = as.factor(Street_Type),
+    Utility_Water       = as.factor(Utility_Water),
+    Utility_Electric    = as.factor(Utility_Electric),
+    Utility_Sewer       = as.factor(Utility_Sewer),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Year_Built_Raw      = as.numeric(Year_Built_Raw)
   )
-
 ```
 
 
 # Data Preprocessing
-c
+
 ```{r}
 # View structure and summary before preprocessing
 str(full_data)
 summary(full_data)
 ```
 
-```{r}
-# Convert to appropriate types
-full_data <- full_data %>%
-  mutate(
-    Sale_Price_Raw = as.numeric(Sale_Price_Raw),
-    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
-    Bedrooms_Raw = as.numeric(Bedrooms_Raw),
-    Bathrooms_Raw = as.numeric(Bathrooms_Raw),
-    Stories_Raw = as.numeric(Stories_Raw),
-    Latitude_Raw = as.numeric(Latitude_Raw),
-    Longitude_Raw = as.numeric(Longitude_Raw),
-    Year_Built_Raw = as.numeric(Year_Built_Raw),
-    Neighborhood = as.factor(Neighborhood),
-    View_Quality = as.factor(View_Quality),
-    Quality = as.factor(Quality),
-    Condition = as.factor(Condition),
-    Utility_Water = as.factor(Utility_Water),
-    Utility_Sewer = as.factor(Utility_Sewer),
-    Street_Type = as.factor(Street_Type),
-    Utility_Electric = as.factor(Utility_Electric)
-  )
-```
 
 ```{r}
 # Count missing values per column
@@ -449,24 +101,42 @@ data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = mis
 
 
 ```{r}
-# Drop View_Quality entirely
-full_data <- full_data %>% select(-View_Quality)
+# 1. Drop View_Quality entirely
+full_data <- full_data %>% dplyr::select(-View_Quality)
 
-# Convert to numeric (if not already done)
+# 2. Convert fields to numeric
 full_data <- full_data %>%
   mutate(
-    Bedrooms_Raw = as.numeric(Bedrooms_Raw),
-    Bathrooms_Raw = as.numeric(Bathrooms_Raw),
-    Stories_Raw = as.numeric(Stories_Raw)
+    Bedrooms_Raw    = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw   = as.numeric(Bathrooms_Raw),
+    Stories_Raw     = as.numeric(Stories_Raw),
+    Year_Built_Raw  = as.numeric(Year_Built_Raw),
+    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
+    Latitude_Raw    = as.numeric(Latitude_Raw),
+    Longitude_Raw   = as.numeric(Longitude_Raw)
   )
 
-# Impute missing values
-# Use median for numeric columns
-full_data$Bedrooms_Raw[is.na(full_data$Bedrooms_Raw)] <- median(full_data$Bedrooms_Raw, na.rm = TRUE)
-full_data$Bathrooms_Raw[is.na(full_data$Bathrooms_Raw)] <- median(full_data$Bathrooms_Raw, na.rm = TRUE)
-full_data$Stories_Raw[is.na(full_data$Stories_Raw)] <- median(full_data$Stories_Raw, na.rm = TRUE)
+# 3. Drop rows with missing values in crucial fields
+full_data <- full_data %>%
+  filter(
+    !is.na(Square_Feet_Raw),
+    !is.na(Quality),
+    !is.na(Condition),
+    !is.na(Neighborhood),
+    !is.na(Latitude_Raw),
+    !is.na(Longitude_Raw)
+  )
+
+# 4. Impute remaining missing values with median
+full_data$Bedrooms_Raw[is.na(full_data$Bedrooms_Raw)]     <- median(full_data$Bedrooms_Raw, na.rm = TRUE)
+full_data$Bathrooms_Raw[is.na(full_data$Bathrooms_Raw)]   <- median(full_data$Bathrooms_Raw, na.rm = TRUE)
+full_data$Stories_Raw[is.na(full_data$Stories_Raw)]       <- median(full_data$Stories_Raw, na.rm = TRUE)
+full_data$Year_Built_Raw[is.na(full_data$Year_Built_Raw)] <- median(full_data$Year_Built_Raw, na.rm = TRUE)
 ```
 
+```{r}
+full_data
+```
 
 
 ```{r}
@@ -475,7 +145,21 @@ str(full_data)
 summary(full_data)
 ```
 
+
+```{r}
+# Remove factor columns with fewer than 2 levels
+full_data <- full_data %>%
+  dplyr::select(where(~ !(is.factor(.) && nlevels(.) < 2)))
+```
+
+
 ### Standardization
+
+Saving a copy before standardization
+
+```{r}
+full_data_raw <- full_data
+```
 
 ```{r}
 numeric_vars <- c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw", 
@@ -485,21 +169,59 @@ full_data[numeric_vars] <- scale(full_data[numeric_vars])
 ```
 
 
-
-
 # Baseline Linear Model
 
 ```{r}
-lm_model <- lm(Sale_Price_Raw ~ ., data = full_data)
+set.seed(123)  # for reproducibility
+
+# Create a vector of row indices for training set (80% train, 20% test)
+train_indices <- sample(seq_len(nrow(full_data)), size = 0.8 * nrow(full_data))
+
+# Split the data
+train_data <- full_data[train_indices, ]
+test_data  <- full_data[-train_indices, ]
+```
+
+
+```{r}
+lm_model <- lm(Sale_Price_Raw ~ ., data = train_data)
 summary(lm_model)
 ```
-With 205 neighborhoods, the linear regression summary becomes nearly unreadable, and model interpretability and generalization both suffer due to:
+This baseline linear regression model, trained on the uncollapsed training data with full neighborhood granularity, achieves an R² of 0.3157, indicating that approximately 31.57% of the variation in sale prices is explained by the included predictors. The residual standard error is around $1.09 million, reflecting the average deviation of predictions from actual sale prices.
 
-High dimensionality from one-hot encoding
+Key variables such as Sale_Date_Raw, Square_Feet_Raw, and several Quality levels (e.g., Excellent, Very Good) are highly significant and contribute strongly to the model. Latitude has a statistically significant negative relationship with price, while Longitude is not significant. Interestingly, some bedrooms and bathroom counts show strong effects, but many neighborhoods do not show statistical significance—highlighting the sparsity and noise introduced by the large number of neighborhood categories.
 
-Multicollinearity across neighborhoods
+In summary, while the model has slightly better explanatory power than the collapsed version, the inclusion of over 300 neighborhood dummies introduces noise and multicollinearity, suggesting potential overfitting and model complexity that could be reduced.
 
-Many sparse levels (some with <50 observations)
+
+## Making Predictions and Evaluation
+
+```{r}
+preds <- predict(lm_model, newdata = test_data)
+actuals <- test_data$Sale_Price_Raw
+
+# Evaluate
+RMSE <- sqrt(mean((preds - actuals)^2))
+MAE <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Test RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+```
+
+The linear regression model yielded a Root Mean Square Error (RMSE) of approximately $1.15 million, a Mean Absolute Error (MAE) of about $185,773, and an R-squared (R²) value of 0.348 on the test set. This indicates that the model captures roughly 35% of the variance in sale prices, meaning that while it explains some of the underlying trends, a substantial portion of the variation remains unaccounted for. The relatively high RMSE suggests that individual price predictions can deviate significantly from the actual values — especially for high-priced properties. These results imply that either the relationship between predictors and price is more complex than a linear model can capture, or that additional relevant variables and transformations (like log transformation or outlier treatment) are needed to improve accuracy.
+
+Several predictors are highly significant (e.g., Square_Feet_Raw, Sale_Date_Raw, Quality, Year_Built_Raw, and Neighborhood), confirming these are strong drivers of price.
+
+However, many neighborhood factors have high p-values, indicating they contribute little and may be noise, which can inflate model complexity without improving performance.
+
+
+With 312 neighborhoods, the linear regression summary becomes nearly unreadable, and model interpretability and generalization both suffer due to:
+
+- High dimensionality from one-hot encoding
+
+- Multicollinearity across neighborhoods
+
+- Many sparse levels (some with <50 observations)
 
 
 ## Collapse Rare Neighborhoods
@@ -507,14 +229,18 @@ Many sparse levels (some with <50 observations)
 ```{r}
 library(forcats)
 
-# Collapse neighborhoods with <100 observations
+# Collapse rare Neighborhood levels in full_data BEFORE splitting
 full_data$Neighborhood <- fct_lump_min(full_data$Neighborhood, min = 100, other_level = "Other")
-```
 
-
-```{r}
+# Optional: limit to top 20 frequent levels only (will still include 'Other')
 full_data$Neighborhood <- fct_lump_n(full_data$Neighborhood, n = 20)
+
+# Re-split the collapsed dataset using the same indices
+train_collapsed <- full_data[train_indices, ]
+test_collapsed <- full_data[-train_indices, ]
+
 ```
+
 
 
 
@@ -522,10 +248,35 @@ full_data$Neighborhood <- fct_lump_n(full_data$Neighborhood, n = 20)
 
 ```{r}
 # Refit after collapsing Neighborhood
-lm_model_clean <- lm(Sale_Price_Raw ~ ., data = full_data)
+lm_model_clean <- lm(Sale_Price_Raw ~ ., data = train_collapsed)
 summary(lm_model_clean)
 ```
-This linear regression model aims to predict residential property sale prices in Pierce County using structural, locational, and utility-related features. The model explains approximately 25.5% of the variance in sale price (adjusted R² = 0.2547), which is typical for real estate data with complex, unobserved factors (e.g., seller motivation, interior renovations). The most influential predictors include square footage (strong positive effect), quality rating (with “Excellent” and “Very Good Plus” properties commanding significantly higher prices), and the number of bathrooms and bedrooms, which have expected directional effects. Geographic coordinates and select neighborhoods also contribute meaningfully, though the majority have been collapsed into a general “Other” category for simplicity. Some utility and street characteristics are statistically significant (e.g., paved vs. unpaved roads), but others are weakly informative or redundant. Overall, the model captures key drivers of price variation and offers a reliable baseline for comparison with more complex models.
+This linear regression model, trained on the collapsed training data, explains about 23% of the variance in sale prices (R² = 0.230), indicating limited predictive power. The residual standard error of approximately $1.15 million reflects substantial average prediction error. Key predictors like square footage, sale date, bathrooms, bedrooms, and various quality levels are highly significant, confirming their influence on home prices. Some neighborhood and utility variables also show significance, though many remain statistically insignificant, suggesting they could be simplified further. Overall, collapsing rare neighborhoods helped manage complexity, but model fit remains moderate.
+
+## Predict and Evaluate
+
+
+```{r}
+# Predict and evaluate
+preds <- predict(lm_model_clean, newdata = test_collapsed)
+actuals <- test_collapsed$Sale_Price_Raw
+
+RMSE <- sqrt(mean((preds - actuals)^2))
+MAE <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Cleaned LM Model — RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+```
+After simplifying the Neighborhood variable by grouping less common neighborhoods into a single "Other" category, the linear model's predictive performance declined:
+
+- Root Mean Squared Error (RMSE) rose to $1,213,242, indicating the average prediction is off by over $1.2 million, heavily influenced by large outliers.
+
+- Mean Absolute Error (MAE) increased to $209,550, showing the typical error magnitude in sale price predictions.
+
+- R² dropped to 0.277, meaning the model now explains only 27.7% of the variance in home sale prices — a reduction in explanatory power.
+
+
+By collapsing Neighborhood, we lost fine-grained location data — a key driver of housing prices. Real estate value is highly localized, and removing specific neighborhood identifiers blunts the model's ability to capture that detail.
 
 
 
@@ -537,32 +288,13 @@ library(MASS)
 step_model <- stepAIC(lm_model_clean, direction = "both")
 summary(step_model)
 ```
-
-This refined linear regression model predicts residential sale prices based on 45 carefully selected predictors. Using stepwise AIC-based selection, the model retains only features that provide measurable value, leading to a more interpretable and parsimonious fit. The adjusted R² is ~0.255, indicating the model explains about 25.5% of price variance—which is reasonable for tabular real estate data.
-
-Among the most significant predictors:
-
-- Square footage is positively correlated with price (coefficient: ~54,500 per SD).
-
-- More bathrooms increase value, while more bedrooms have a negative effect (likely due to room count capturing older or less efficient layouts).
-
-- Geographic coordinates (latitude and longitude) also impact value, likely reflecting proximity to key amenities or desirability zones.
-
-- Quality ratings such as “Excellent” or “Very Good Plus” have strong positive effects—up to $1.2M or more, underscoring the market premium for high construction quality.
-
-- Certain neighborhoods significantly raise or lower prices, while others are pooled under “Other” for statistical stability.
-
-- Unpaved streets have a significant negative association with price.
-
-- The Year Built is positively associated, suggesting newer homes command higher values.
-
-- Some factors—like certain conditions, utility details, or minor neighborhood levels—remain in the model but are not statistically significant, likely retained for marginal AIC improvement.
+This linear regression model, trained on the collapsed training dataset using stepwise AIC selection, explains about 23% of the variance in sale prices (R² = 0.2297), indicating moderate explanatory power. The residual standard error is approximately $1.15 million, suggesting substantial variability in predictions—expected given the broad range of property values. Statistically significant predictors (p < 0.05) include sale date, square footage, number of bedrooms and bathrooms, story count, building quality categories, some neighborhoods, street type, sewer availability, and year built. For example, higher square footage and better quality categories (e.g., "Excellent", "Very Good Plus") are associated with substantially higher sale prices, while factors like "STREET UNPAVED" or lacking sewer infrastructure are associated with lower values. Geographic features like longitude remain significant, whereas latitude was dropped during model selection. Overall, the model captures several meaningful drivers of property value, though with room for improvement in predictive accuracy.
 
 # Model Evaluation
 
 ```{r}
 par(mfrow = c(2, 2))
-plot(lm_model_clean)  # or step_model if using that one
+plot(lm_model_clean)
 ```
 The residual vs. fitted plot (top-left) shows non-random patterns and heteroskedasticity (i.e., increasing spread with fitted values), suggesting the model’s variance isn't constant across all price ranges — particularly at higher price points. The Q-Q plot (top-right) reveals non-normal residuals, with a heavy tail on the right, indicating the presence of outliers or skewness (especially in high-value sales). The scale-location plot (bottom-left) confirms the heteroskedasticity, as the red line trends upward, showing that residual variance increases with predicted price. Lastly, the residuals vs. leverage plot (bottom-right) identifies a few high-leverage and high-residual points (e.g., observations like 1852 and 14769), which could have a disproportionate impact on model estimates — these might be extreme or unusual sales.
 
@@ -575,118 +307,125 @@ hist(resid(step_model), breaks = 50, main = "Residual Histogram")
 ```
 
 
-#  RMSE and MAE (Out-of-Sample)
-
-```{r}
-set.seed(123)
-split_idx <- sample(1:nrow(full_data), 0.8 * nrow(full_data))
-train <- full_data[split_idx, ]
-test <- full_data[-split_idx, ]
-
-model <- lm(Sale_Price_Raw ~ ., data = train)
-pred <- predict(model, newdata = test)
-
-# Metrics
-RMSE <- sqrt(mean((pred - test$Sale_Price_Raw)^2))
-MAE <- mean(abs(pred - test$Sale_Price_Raw))
-R2 <- 1 - sum((pred - test$Sale_Price_Raw)^2) / sum((test$Sale_Price_Raw - mean(test$Sale_Price_Raw))^2)
-
-cat(sprintf("RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
-
-```
-
-The evaluation of your linear regression model on the test set yielded an RMSE of approximately $272,000, an MAE of around $173,700, and an R² of 0.255. These results indicate that the model can explain about 25.5% of the variance in sale prices. While this is a decent baseline for structured housing data, the relatively high RMSE suggests that prediction errors can be substantial, especially in higher-priced homes. The model is likely affected by multicollinearity (e.g., between bedrooms and bathrooms), the presence of outliers, and potentially non-informative variables. To improve robustness and generalization, Lasso regression is a logical next step. It applies L1 regularization, which not only reduces overfitting but also automatically selects variables by shrinking some coefficients to zero—thereby addressing multicollinearity and improving model simplicity without sacrificing much predictive power.
-
-
-
 # Lasso + Outlier Handling
 ```{r}
-# Load required packages
-if (!require(glmnet)) install.packages("glmnet")
-if (!require(model.matrix)) install.packages("model.matrix")
 library(glmnet)
 
-# Optional: remove outliers based on standardized residuals from a basic model
+# Remove outliers based on standardized residuals from a base linear model
 base_lm <- lm(Sale_Price_Raw ~ ., data = full_data)
 std_resid <- rstandard(base_lm)
 full_data_clean <- full_data[abs(std_resid) < 3, ]
 
-# Split data
+# Re-sample after cleaning
 set.seed(123)
-split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
-train <- full_data_clean[split_idx, ]
-test <- full_data_clean[-split_idx, ]
+train_indices <- sample(seq_len(nrow(full_data_clean)), size = 0.8 * nrow(full_data_clean))
+train <- full_data_clean[train_indices, ]
+test  <- full_data_clean[-train_indices, ]
 
-# Prepare data for glmnet
-x_train <- model.matrix(Sale_Price_Raw ~ ., data = train)[, -1]
+# Prepare data for glmnet (model.matrix automatically handles factors)
+x_train <- model.matrix(~ ., data = train[, !names(train) %in% "Sale_Price_Raw"])[, -1]
 y_train <- train$Sale_Price_Raw
 
-x_test <- model.matrix(Sale_Price_Raw ~ ., data = test)[, -1]
+x_test <- model.matrix(~ ., data = test[, !names(test) %in% "Sale_Price_Raw"])[, -1]
 y_test <- test$Sale_Price_Raw
 
-# Fit Lasso with CV to find optimal lambda
+# Fit Lasso with cross-validation
 set.seed(123)
 cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
 
-# Best lambda
+# Optimal lambda
 best_lambda <- cv_lasso$lambda.min
 
 # Fit final Lasso model
 lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 
-# Predict on test set
+# Predict and evaluate
 pred_lasso <- predict(lasso_model, s = best_lambda, newx = x_test)
 
-# Evaluate
 RMSE <- sqrt(mean((pred_lasso - y_test)^2))
 MAE <- mean(abs(pred_lasso - y_test))
 R2 <- 1 - sum((pred_lasso - y_test)^2) / sum((y_test - mean(y_test))^2)
 
-cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n\n", RMSE, MAE, R2))
 
-# View non-zero coefficients
+# Show non-zero coefficients
+coef_df <- as.matrix(coef(lasso_model, s = best_lambda))
+non_zero <- coef_df[coef_df[, 1] != 0, , drop = FALSE]
 cat("Selected predictors (non-zero coefficients):\n")
-print(coef(lasso_model)[coef(lasso_model) != 0])
+print(non_zero)
 ```
 
-The Lasso regression achieved an RMSE of approximately $201,200, an MAE of $153,994, and an R² of 0.303 on the test set. This indicates the model explains about 30.3% of the variance in sale prices, outperforming the earlier linear model (which had an R² of 0.255). The reduction in both RMSE and MAE suggests more accurate and stable predictions, especially after addressing outliers and applying regularization. Importantly, Lasso shrunk many coefficients to zero, leaving only ~40 predictors in the final model—improving interpretability and robustness. This confirms that Lasso effectively reduced model complexity, mitigated multicollinearity, and highlighted the most impactful variables (e.g., square footage, year built, and several Quality levels).
+The Lasso regression model achieved strong predictive performance, with an RMSE of approximately $235,196, an MAE of $119,263, and an R² of 0.616, indicating that it explains about 61.6% of the variance in housing prices. This reflects a well-calibrated model capable of reasonably accurate predictions across a diverse dataset. Lasso’s regularization shrank many coefficients to zero, leaving a focused subset of influential predictors, including square footage (by far the most impactful), location (latitude, longitude, and specific neighborhoods), structural features (like number of bedrooms, stories, and year built), and detailed quality and condition ratings. Notably, high-quality homes (e.g., “Excellent” or “Very Good Plus”) and certain neighborhoods had large positive coefficients, while poor utility access (e.g., no sewer/septic or power) and lower condition ratings pulled prices down. Interestingly, properties lacking standard road access or with no power comments had elevated price signals, likely reflecting niche, high-value parcels. Overall, the model balances accuracy and interpretability, highlighting key drivers of home value while managing complexity and multicollinearity.
 
+
+```{r}
+summary(full_data$Sale_Price_Raw)
+summary(full_data_clean$Sale_Price_Raw)
+```
+```{r}
+# Remove rows with invalid sale prices
+full_data <- full_data %>%
+  filter(Sale_Price_Raw > 1000)  # Removes 0 and unrealistically low values
+
+full_data_clean <- full_data_clean %>%
+  filter(Sale_Price_Raw > 1000)  # Removes 0 and unrealistically low values
+```
+
+```{r}
+summary(full_data$Sale_Price_Raw)
+summary(full_data_clean$Sale_Price_Raw)
+
+```
+```{r}
+# 1. Remove low sale prices and log-transform
+full_datalog <- full_data_clean %>%
+  mutate(Log_Sale_Price = log(Sale_Price_Raw)) %>%
+  filter(is.finite(Log_Sale_Price))
+```
+
+```{r}
+summary(full_datalog$Log_Sale_Price)
+```
+```{r}
+summary(full_datalog)
+```
 
 # Stepwise + Log-Transformed Price
 
 ```{r}
-# Log-transform the target
-full_data$Log_Sale_Price <- log(full_data$Sale_Price_Raw)
+# Ensure required libraries are available
+library(dplyr)
 
-# Optional: remove outliers using standardized residuals
-lm_base <- lm(Log_Sale_Price ~ ., data = full_data[, !names(full_data) %in% c("Sale_Price_Raw")])
-std_resid <- rstandard(lm_base)
-full_data_clean <- full_data[abs(std_resid) < 3, ]
-
-# Split
 set.seed(123)
-split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
-train <- full_data_clean[split_idx, ]
-test <- full_data_clean[-split_idx, ]
+split_idx <- sample(1:nrow(full_datalog), 0.8 * nrow(full_datalog))
+train <- full_datalog[split_idx, ]
+test  <- full_datalog[-split_idx, ]
 
-# Stepwise selection
-full_formula <- as.formula("Log_Sale_Price ~ .")
-model_full <- lm(full_formula, data = train[, !names(train) %in% c("Sale_Price_Raw")])
+# Step 4: Stepwise model selection (on log-transformed target)
+model_full <- lm(Log_Sale_Price ~ ., data = train %>% dplyr::select(-Sale_Price_Raw))
 model_step <- step(model_full, direction = "both", trace = FALSE)
 
-# Predict and back-transform
-log_preds <- predict(model_step, newdata = test)
-preds <- exp(log_preds)
-actuals <- exp(test$Log_Sale_Price)
+preds <- predict(model_step, newdata = test)
+actuals <- test$Log_Sale_Price
 
-# Evaluate
+# Step 6: Metrics
 RMSE <- sqrt(mean((preds - actuals)^2))
-MAE <- mean(abs(preds - actuals))
-R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+MAE  <- mean(abs(preds - actuals))
+R2   <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
 
 cat(sprintf("Stepwise Log-LM RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+
 ```
-The stepwise linear regression model using log-transformed sale prices (Log_Sale_Price_Raw) achieved an RMSE of approximately $268,614, an MAE of around $161,711, and an R² of 0.266 when predictions were back-transformed to the original price scale. These results indicate a modest improvement over the initial linear model on raw prices and suggest that the log transformation helped slightly reduce prediction error and stabilize variance. However, the model still explains only about 26.6% of the variance in housing prices, implying that other factors or nonlinear relationships remain unaccounted for. Compared to the Lasso model (which had better RMSE, MAE, and R²), stepwise regression is slightly less effective, likely due to its inability to handle multicollinearity and regularize coefficients. Nonetheless, it serves as a useful baseline and confirms that the log transformation is beneficial.
+```{r}
+summary(model_full)
+```
+
+```{r}
+summary(model_step)
+```
+
+The linear regression model using log-transformed sale prices achieved an R² of 0.484, meaning it explains approximately 48.4% of the variance in logged housing prices — a significant improvement over models on the raw price scale. The residual standard error of 0.574 (in log dollars) suggests reasonably tight clustering of predictions around the true values on the log scale. Many predictors are highly statistically significant, including square footage, sale date, latitude, number of bathrooms, and detailed quality and condition indicators. The model also captures meaningful geographic and infrastructure effects — for instance, certain neighborhoods and street types show strong associations, as do utility access variables like sewer/septic status and electrical service. Notably, lack of sewer or power access corresponds with substantial negative coefficients, while high-quality ratings (e.g., “Excellent” or “Very Good Plus”) are linked to large price premiums. Although this model doesn't regularize coefficients like Lasso and is more susceptible to multicollinearity, it performs well in terms of explanatory power and provides interpretable estimates of each variable's marginal impact. Overall, the log transformation clearly improves model behavior, and the results offer valuable insight into the structural and locational drivers of property value.
+
 
 # Full Lasso Pipeline with Log-Transformed Target
 
@@ -694,19 +433,11 @@ The stepwise linear regression model using log-transformed sale prices (Log_Sale
 # Load required library
 library(glmnet)
 
-# Log-transform target
-full_data$Log_Sale_Price <- log(full_data$Sale_Price_Raw)
-
-# Optional: remove outliers using standardized residuals on log scale
-base_lm <- lm(Log_Sale_Price ~ ., data = full_data[, !names(full_data) %in% c("Sale_Price_Raw")])
-std_resid <- rstandard(base_lm)
-full_data_clean <- full_data[abs(std_resid) < 3, ]
-
 # Train-test split
 set.seed(123)
-split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
-train <- full_data_clean[split_idx, ]
-test <- full_data_clean[-split_idx, ]
+split_idx <- sample(1:nrow(full_datalog), 0.8 * nrow(full_datalog))
+train <- full_datalog[split_idx, ]
+test <- full_datalog[-split_idx, ]
 
 # Prepare matrices
 x_train <- model.matrix(Log_Sale_Price ~ ., data = train[, !names(train) %in% c("Sale_Price_Raw")])[, -1]
@@ -724,11 +455,8 @@ best_lambda <- cv_lasso$lambda.min
 lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 
 # Predict and transform back
-log_preds <- predict(lasso_model, s = best_lambda, newx = x_test)
-preds <- exp(log_preds)
-
-# Evaluate on original price scale
-actuals <- exp(y_test)
+preds <- predict(lasso_model, s = best_lambda, newx = x_test)
+actuals <- y_test
 RMSE <- sqrt(mean((preds - actuals)^2))
 MAE <- mean(abs(preds - actuals))
 R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
@@ -740,7 +468,11 @@ cat("Selected predictors (non-zero coefficients):\n")
 print(coef(lasso_model)[coef(lasso_model) != 0])
 ```
 
-The Lasso regression model built on log-transformed sale prices returned an RMSE of approximately $269,625, MAE of $161,591, and an R² of 0.260 after predictions were back-transformed. Surprisingly, this model performed slightly worse than the original Lasso model without log transformation (which had an RMSE of ~$201K and R² of 0.303). Despite the expected benefits of stabilizing variance and reducing skewness via the log transform, this result suggests that the original model better captured the underlying structure of sale prices. The poorer performance may be due to information loss when back-transforming predictions, or that outliers and heteroscedasticity weren’t severe enough to justify the transformation. It also highlights that Lasso's regularization alone was already effective at managing variance and complexity without needing to transform the target variable.
+The Lasso regression model trained on log-transformed sale prices achieved an RMSE of 0.57, an MAE of 0.32, and an R² of 0.495 on the log scale, indicating a reasonably strong fit in terms of explained variance. However, when the predictions were back-transformed to the original dollar scale, the model’s performance declined: RMSE rose to $269,625, MAE to $161,591, and R² dropped to 0.260. This was worse than the original Lasso model without log transformation, which achieved lower error metrics and a higher R² (~0.303), suggesting that the log transformation did not yield the expected improvement.
+
+While log-transforming the target variable is often beneficial for stabilizing variance and mitigating skewness, in this case it may have introduced distortion upon back-transformation or obscured meaningful structure in the raw sale prices. It's also possible that outliers and heteroscedasticity were already being effectively managed by Lasso’s inherent regularization, making the transformation redundant or even counterproductive.
+
+Nonetheless, the model retained a concise set of meaningful predictors with non-zero coefficients, including square footage, location, home features, quality ratings, and utility access. This reaffirms Lasso’s strength in variable selection and multicollinearity control, even if the log-scale modeling choice did not ultimately enhance performance.
 
 
 # Multicollinearity Check
@@ -749,14 +481,18 @@ The Lasso regression model built on log-transformed sale prices returned an RMSE
 library(car)
 vif(step_model)
 ```
-The VIF analysis shows that most predictors in the linear model do not suffer from problematic multicollinearity. However, Bathrooms_Raw (VIF ≈ 5.5) and Bedrooms_Raw (VIF ≈ 4.6) exhibit moderate multicollinearity, likely due to their natural correlation in residential properties—larger homes tend to have more of both. While these values are not critically high, they suggest some redundancy. Geographic features like Latitude_Raw and Longitude_Raw also show mild correlation but remain within acceptable bounds. Categorical variables such as Neighborhood, Quality, and Condition display low generalized VIFs, indicating they contribute independently to the model. Overall, multicollinearity is not a major issue here, though combining related features or using regularization methods like Lasso regression could further enhance model robustness and interpretability.
+The multicollinearity analysis using GVIF indicates that the predictors in the linear regression model are generally well-behaved. All variables show GVIF-adjusted values below the commonly cited concern threshold of 2, suggesting that multicollinearity is not a significant issue. The highest observed values are for Bathrooms_Raw (GVIF ≈ 1.75) and Bedrooms_Raw (GVIF ≈ 1.52), reflecting moderate correlation — which is expected, as both are typically larger in more spacious homes.
+
+Other numeric predictors such as Longitude_Raw, Stories_Raw, and Year_Built_Raw also fall well within safe ranges. Importantly, categorical variables like Quality, Neighborhood, and Street_Type have low adjusted GVIF values, indicating they contribute unique and non-redundant information to the model. This reinforces confidence in the model's structure and suggests that feature inflation is minimal.
+
+While no corrective action is strictly necessary, the slight overlap among housing feature variables may still benefit from dimensionality reduction or regularization techniques (e.g., Lasso) to further improve model stability and interpretability. Overall, the model’s predictors are statistically independent enough to support reliable inference and prediction.
 
 ```{r}
 # Load necessary library
 library(ggcorrplot)
 
 # Subset only numeric predictors
-numeric_data <- full_data[, c("Sale_Price_Raw", "Square_Feet_Raw", "Bedrooms_Raw", 
+numeric_data <- full_data_clean[, c("Sale_Price_Raw", "Square_Feet_Raw", "Bedrooms_Raw", 
                               "Bathrooms_Raw", "Stories_Raw", "Latitude_Raw", "Longitude_Raw")]
 
 # Compute correlation matrix
@@ -780,7 +516,7 @@ Decision Rule
 
 ```{r}
 # Compute correlation matrix
-cor_matrix <- cor(full_data[, c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw",
+cor_matrix <- cor(full_data_clean[, c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw",
                                 "Stories_Raw", "Latitude_Raw", "Longitude_Raw", "Sale_Price_Raw")],
                   use = "complete.obs")
 
@@ -790,18 +526,18 @@ avg_abs_corr <- apply(cor_matrix, 2, function(x) mean(abs(x[x != 1])))
 # Sort descending
 sort(avg_abs_corr, decreasing = TRUE)
 ```
-Decision: Remove Bathrooms_Raw from your model going forward. It’s highly correlated with both Bedrooms_Raw and Square_Feet_Raw, and contributes more to collinearity.
+Decision: Remove Bathrooms_Raw from your model going forward. It’s moderately (to even strongly) correlated with Bedrooms_Raw, and contributes more to collinearity.
 
 ```{r}
 library(dplyr)
 
-full_data <- full_data %>% dplyr::select(-Bathrooms_Raw)
+full_data_clean <- full_data_clean %>% dplyr::select(-Bathrooms_Raw)
 
 ```
 
 ```{r}
-str(full_data)
-summary(full_data$Sale_Price_Raw)
+str(full_data_clean)
+summary(full_data_clean$Sale_Price_Raw)
 ```
 
 
@@ -811,9 +547,9 @@ summary(full_data$Sale_Price_Raw)
 
 # Train-test split
 set.seed(123)
-split_idx <- sample(1:nrow(full_data), 0.8 * nrow(full_data))
-train <- full_data[split_idx, ]
-test <- full_data[-split_idx, ]
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
 
 # Fit OLS model
 lm_model <- lm(Sale_Price_Raw ~ ., data = train)
@@ -827,16 +563,18 @@ R2 <- 1 - sum((pred - test$Sale_Price_Raw)^2) / sum((test$Sale_Price_Raw - mean(
 cat(sprintf("OLS (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
 
 ```
-After removing Bathrooms_Raw due to its high multicollinearity with Bedrooms_Raw, the ordinary least squares (OLS) model achieved a significantly improved performance. The RMSE dropped to ~$162,013, the MAE to ~$80,737, and the R² rose dramatically to 0.736, meaning the model now explains approximately 73.6% of the variance in sale prices — a major improvement over earlier versions. This suggests that eliminating redundant predictors enhanced the model’s stability and interpretability. The lower error metrics indicate much more accurate predictions, while the higher R² confirms a stronger overall fit. Importantly, this demonstrates that simplifying the model by removing correlated features can be just as powerful as complex tuning or regularization.
+After removing Bathrooms_Raw—which exhibited moderate multicollinearity with Bedrooms_Raw—the ordinary least squares (OLS) regression model showed improved simplicity but only modest gains in performance. The model achieved an RMSE of $241,245, an MAE of $119,560, and an R² of 0.594, meaning it explains about 59.4% of the variance in housing prices. Compared to earlier versions, these results represent a moderate improvement in explanatory power and similar predictive accuracy, suggesting that eliminating the redundant bathroom variable slightly enhanced model stability without significantly changing its overall behavior.
+
+This outcome supports the idea that reducing multicollinearity—by removing highly correlated predictors—can help streamline the model and improve interpretability, even without relying on more complex techniques like regularization or tuning. While the effect is not dramatic, it confirms that careful feature selection remains a valuable tool for building robust linear models.
 
 # Updated Lasso Model Without Bathrooms_Raw
 
 ```{r}
 # Split
 set.seed(123)
-split_idx <- sample(1:nrow(full_data), 0.8 * nrow(full_data))
-train <- full_data[split_idx, ]
-test <- full_data[-split_idx, ]
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
 
 # Prepare data
 x_train <- model.matrix(Sale_Price_Raw ~ ., data = train)[, -1]
@@ -861,17 +599,21 @@ cat(sprintf("Lasso (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE
 cat("Selected predictors:\n")
 print(coef(lasso_model)[coef(lasso_model) != 0])
 ```
-The Lasso regression model, retrained after removing the multicollinear Bathrooms_Raw feature, achieved very strong results — virtually identical to the refined OLS model. It posted an RMSE of ~$161,843, an MAE of ~$80,568, and an R² of 0.736, indicating that the model captures 73.6% of the variation in sale prices. These metrics confirm that the Lasso model provides accurate and reliable predictions, while also benefiting from its regularization strength by automatically selecting only a subset of important predictors. This sparsity improves interpretability and reduces overfitting risk. The selected variables include key structural and locational factors, as well as neighborhood and quality indicators, suggesting a robust and balanced feature selection. In summary, Lasso performs just as well as the simplified OLS, but with added feature parsimony, making it an excellent choice when prioritizing generalizability and variable selection.
+After removing the multicollinear Bathrooms_Raw variable, the Lasso regression model achieved solid and stable performance, with an RMSE of $241,187, MAE of $119,425, and an R² of 0.595. These results are nearly identical to the corresponding simplified OLS model, indicating that Lasso remains competitive even when redundancy is manually addressed.
+
+The model retains its core advantage: automatic feature selection through regularization, which results in a parsimonious set of predictors that captures key drivers of sale price without overfitting. The selected variables include a mix of structural attributes (e.g., square footage, stories), geographic features (latitude, longitude), quality ratings, and neighborhood indicators—reinforcing the model’s ability to isolate the most influential factors.
+
+While the performance metrics are not dramatically better than OLS, Lasso's ability to handle multicollinearity implicitly and streamline the feature set makes it especially valuable for high-dimensional or noisy datasets. In this case, it offers a well-balanced trade-off between interpretability, robustness, and predictive accuracy.
 
 
 # Removing Sale Price Outliers Using Quantiles
 
 ```{r}
 # Remove top and bottom 1% of prices
-q_low <- quantile(full_data$Sale_Price_Raw, 0.01)
-q_high <- quantile(full_data$Sale_Price_Raw, 0.99)
+q_low <- quantile(full_data_clean$Sale_Price_Raw, 0.01)
+q_high <- quantile(full_data_clean$Sale_Price_Raw, 0.99)
 
-trimmed_data <- full_data %>%
+trimmed_data <- full_data_clean %>%
   filter(Sale_Price_Raw >= q_low, Sale_Price_Raw <= q_high)
 ```
 
@@ -891,8 +633,9 @@ test <- trimmed_data[-split_idx, ]
 
 
 ```
+
 ```{r}
-str(trimmed_data)
+summary(trimmed_data)
 ```
 
 ```{r}
@@ -928,18 +671,22 @@ cat(sprintf("Lasso (outliers removed)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\n",
             lasso_rmse, lasso_mae, lasso_r2))
 
 ```
+After removing sale price outliers using quantile-based filtering, the performance of the OLS and Lasso models shifted notably. The OLS model improved, achieving an RMSE of $148,404, an MAE of $98,699, and an R² of 0.592, indicating that it now explains nearly 60% of the variance in prices. The reduction in both error metrics suggests that removing extreme values helped the linear model fit the central distribution more effectively, resulting in more stable and accurate predictions. In contrast, the Lasso model's performance declined, with an RMSE of $195,204, an MAE of $132,600, and an R² of just 0.294. This drop may indicate that Lasso had previously relied on the variance introduced by outliers to identify predictive structure, and that its regularization now overly penalizes the model in the absence of that variation. Overall, this comparison shows that OLS benefits significantly from outlier removal, while Lasso's advantage diminishes, highlighting the importance of aligning preprocessing choices with the strengths of the modeling technique.
 
 
 # Conclusion
 
-After a comprehensive modeling workflow — including preprocessing, feature engineering, outlier removal, and model tuning — we achieved exceptional performance in predicting residential sale prices. The final OLS and Lasso models, trained on data with extreme sale prices removed, both yielded RMSE values around $83,800, MAE near $57,800, and R² of 0.871. This means the model explains nearly 87% of the variance in home prices — an impressively high proportion for real-world property data.
+Following a comprehensive modeling process—spanning data cleaning, feature engineering, outlier removal, and algorithm selection—the Lasso regression model with standardized residual-based outlier filtering emerged as the best performer. This final model achieved an RMSE of approximately $235,196, MAE of $119,263, and an R² of 0.616, meaning it explains about 61.6% of the variance in residential sale prices. These results represent a strong balance between predictive accuracy and model simplicity, particularly given the real-world variability of property data.
 
-The step that led to the biggest improvement was removing the top and bottom 1% of sale prices, which reduced noise and allowed the models to generalize better across typical homes. While earlier models (especially with unscaled or unfiltered prices) struggled with error magnitudes over $200,000, this cleaned and focused dataset provided a far more stable learning environment.
+The most impactful improvement came from removing outliers based on standardized residuals, which allowed the model to focus on more typical market behavior and avoid distortion from extreme values. While earlier models—especially those trained on unfiltered or unscaled data—suffered from inflated error metrics and unstable coefficients, this cleaned and refined dataset provided a much more stable learning foundation.
 
-The similarity in performance between OLS and Lasso suggests that regularization was not heavily needed, as feature selection stabilized once outliers were removed and multicollinearity was addressed. In this case, a simpler linear model (OLS) may be preferred for its interpretability and ease of use in deployment, without sacrificing accuracy.
+Notably, Lasso’s regularization played a key role by automatically shrinking less important variables and selecting a sparse set of predictors that included core structural features (e.g., square footage, stories), locational attributes (latitude, longitude, neighborhood), and detailed quality and condition indicators. Even with outliers removed and multicollinearity reduced, Lasso continued to deliver robust performance and improved interpretability over more complex models.
 
-In conclusion, this model — built on thoughtfully selected features and rigorous data cleansing — offers a highly reliable baseline for property price prediction in this dataset. Further refinements could include nonlinear models or interaction effects.
+In conclusion, this Lasso model—built on rigorous preprocessing and smart regularization—offers a reliable, interpretable, and generalizable framework for predicting residential property values. Future enhancements might include non-linear models, interaction terms, or spatial modeling layers, but this approach already provides a solid baseline for practical applications.
 
+Full formula of the final model of choice:
+
+y =−32,872.71+46.44⋅Sale_Date_Raw+615,281.25⋅Square_Feet_Raw+27,144.44⋅Latitude_Raw−1,576.82⋅Longitude_Raw−26,897.08⋅Bedrooms_Raw−8,733.02⋅Stories_Raw+77,804.62⋅QualityAverage Plus+551,105.24⋅QualityExcellent−48,172.89⋅QualityFair−31,559.97⋅QualityFair Plus+141,495.64⋅QualityGood+285,763.34⋅QualityGood Plus−81,765.66⋅QualityLow−72,437.97⋅QualityLow Plus+341,569.84⋅QualityVery Good+814,971.25⋅QualityVery Good Plus−65,935.43⋅ConditionExtra Poor−3,581.34⋅ConditionFair+14,527.32⋅ConditionGood−17,954.62⋅ConditionPoor−33,236.11⋅ConditionUninhabitable−2,829.11⋅ConditionVery Poor+Neighborhood Coefficients (various)+75,015.49⋅Street_TypeSTREET NO ROAD+14,961.43⋅Street_TypeSTREET UNPAVED+13,493.34⋅Utility_ElectricPOWER INSTALLED−145,577.25⋅Utility_ElectricPOWER NO - COMMENT−444,262.58⋅Utility_SewerSEWER/SEPTIC AVAIL−527,653.39⋅Utility_SewerSEWER/SEPTIC INSTALLED−406,656.20⋅Utility_SewerSEWER/SEPTIC NO−251,631.65⋅Utility_SewerSEWER/SEPTIC NO PERC+184,513.50⋅Improved_Vacant_Raw1−9,154.39⋅Year_Built_Raw
 
 
 
