@@ -4,7 +4,6 @@ format: html
 editor: visual
 ---
 
-
 ```{r}
 library(readr)
 library(dplyr)
@@ -181,36 +180,29 @@ full_data_latest100 <- sale_latest %>%
   left_join(land_summary, by = "Parcel_Number")
 ```
 
-
 ```{r}
 nrow(full_data_latest100)
 length(unique(full_data_latest100$Parcel_Number))
 ```
-
 
 ```{r}
 full_data_latest_valid <- full_data_latest100 %>%
   filter(Valid_Invalid_Raw == "1")
 ```
 
-
 ```{r}
 nrow(full_data_latest_valid)                 # Rows after filtering
 length(unique(full_data_latest_valid$Parcel_Number))
 ```
 
-
 ```{r}
 str(full_data_latest_valid)
 ```
-
 
 ```{r}
 # Save combined CSV
 write_csv(full_data_latest_valid, "full_data_latest_valid.csv")
 ```
-
-
 
 ```{r}
 library(dplyr)
@@ -220,28 +212,26 @@ full_data <- read_csv("full_data_latest_valid.csv", show_col_types = FALSE)
 ```
 
 ```{r}
-library(dplyr)
-
 full_data <- full_data %>%
-  select(
-    Sale_Date_Raw        = Sale_Date_Raw,
-    Sale_Price_Raw       = Sale_Price_Raw,
-    Square_Feet_Raw      = Square_Feet_Raw,
-    Latitude_Raw         = Latitude_Raw,
-    Longitude_Raw        = Longitude_Raw,
-    Bedrooms_Raw         = Bedrooms_Raw,
-    Bathrooms_Raw        = Bathrooms_Raw,
-    Stories_Raw          = Stories_Raw,
-    Quality              = Quality,
-    Condition            = Condition,
-    Neighborhood         = Neighborhood,
-    View_Quality         = View_Quality,
-    Street_Type          = Street_Type,
-    Utility_Water        = Utility_Water,
-    Utility_Electric     = Utility_Electric,
-    Utility_Sewer        = Utility_Sewer,
-    Valid_Invalid_Raw    = Valid_Invalid_Raw,
-    Improved_Vacant_Raw  = Improved_Vacant_Raw
+  dplyr::select(
+    Sale_Date_Raw,
+    Sale_Price_Raw,
+    Square_Feet_Raw,
+    Latitude_Raw,
+    Longitude_Raw,
+    Bedrooms_Raw,
+    Bathrooms_Raw,
+    Stories_Raw,
+    Quality,
+    Condition,
+    Neighborhood,
+    View_Quality,
+    Street_Type,
+    Utility_Water,
+    Utility_Electric,
+    Utility_Sewer,
+    Improved_Vacant_Raw,
+    Year_Built_Raw
   ) %>%
   mutate(
     Sale_Date_Raw       = as.Date(Sale_Date_Raw),
@@ -260,8 +250,8 @@ full_data <- full_data %>%
     Utility_Water       = as.factor(Utility_Water),
     Utility_Electric    = as.factor(Utility_Electric),
     Utility_Sewer       = as.factor(Utility_Sewer),
-    Valid_Invalid_Raw   = as.factor(Valid_Invalid_Raw),
-    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw)
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Year_Built_Raw      = as.numeric(Year_Built_Raw)
   )
 
 ```
@@ -270,7 +260,6 @@ full_data <- full_data %>%
 str(full_data)
 ```
 
-
 ```{r}
 # Count missing values per column
 missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
@@ -281,7 +270,6 @@ print(missing_summary)
 missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
 data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
 ```
-
 
 ```{r}
 full_data <- full_data %>%
@@ -290,20 +278,201 @@ full_data <- full_data %>%
 ```
 
 ```{r}
-full_data
+library(tidyr)
+
+# 1. Drop View_Quality entirely
+full_data <- full_data %>% dplyr::select(-View_Quality)
+
+# 2. Convert fields to numeric
+full_data <- full_data %>%
+  mutate(
+    Bedrooms_Raw    = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw   = as.numeric(Bathrooms_Raw),
+    Stories_Raw     = as.numeric(Stories_Raw),
+    Year_Built_Raw  = as.numeric(Year_Built_Raw),
+    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
+    Latitude_Raw    = as.numeric(Latitude_Raw),
+    Longitude_Raw   = as.numeric(Longitude_Raw)
+  )
+
+# 3. Drop rows with missing values in crucial fields
+full_data <- full_data %>%
+  filter(
+    !is.na(Square_Feet_Raw),
+    !is.na(Quality),
+    !is.na(Condition),
+    !is.na(Neighborhood),
+    !is.na(Latitude_Raw),
+    !is.na(Longitude_Raw)
+  )
+
+# 4. Drop rows with any remaining missing values
+full_data <- full_data %>% drop_na()
 ```
 
-
+```{r}
+full_data
+```
 ```{r}
 # Count missing values per column
 missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
 missing_summary <- sort(missing_summary, decreasing = TRUE)
 print(missing_summary)
 
-
 # Optionally show % missing
 missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
 data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
 ```
 
+
+# Outlier Removal
+
+### Sales Price
+```{r}
+library(ggplot2)
+#Create a histogram of the sales price
+ggplot(full_data, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+```{r}
+Q1 <- quantile(full_data$Sale_Price_Raw, 0.25, na.rm = TRUE)
+Q3 <- quantile(full_data$Sale_Price_Raw, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+full_data_nooutliers <- full_data %>%
+  filter(Sale_Price_Raw >= (Q1 - 1.5 * IQR), Sale_Price_Raw <= (Q3 + 1.5 * IQR))
+
+```
+
+```{r}
+str(full_data_nooutliers)
+```
+```{r}
+#Create a histogram of the sales price
+ggplot(full_data_nooutliers, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+```{r}
+summary(full_data$Sale_Price_Raw)
+quantile(full_data$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
+```
+
+```{r}
+summary(full_data_nooutliers$Sale_Price_Raw)
+quantile(full_data_nooutliers$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
+```
+
+
+```{r}
+full_data_new <- full_data %>%
+  filter(Sale_Price_Raw >= 10000)
+```
+
+```{r}
+Q1 <- quantile(full_data_new$Sale_Price_Raw, 0.25, na.rm = TRUE)
+Q3 <- quantile(full_data_new$Sale_Price_Raw, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+full_data_new <- full_data_new %>%
+  filter(Sale_Price_Raw >= (Q1 - 1.5 * IQR), Sale_Price_Raw <= (Q3 + 1.5 * IQR))
+
+```
+
+
+```{r}
+summary(full_data_new$Sale_Price_Raw)
+quantile(full_data_new$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
+```
+
+Minimum price is now $10,000, which removed junk entries like $0 or $100.
+
+1st Percentile is ~$30K, still within realistic bounds (possibly small homes or land).
+
+Upper range (Max $925K) seems reasonable unless you're specifically excluding luxury homes.
+
+Mean and median are much closer now, which means less skew.
+```{r}
+str(full_data_new)
+```
+
+```{r}
+ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price"
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+```{r}
+ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  scale_x_log10(labels = scales::dollar) +
+  labs(title = "Histogram of Sale Prices (Log Scale)", x = "Sale Price", y = "Count") +
+  theme_minimal(base_size = 15)
+```
+```{r}
+full_data_new <- full_data_new %>%
+  mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
+
+ggplot(full_data_new, aes(x = Price_Per_SqFt)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Price per Square Foot", x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
+```
+```{r}
+full_data_new_sqfeet <- full_data_new %>%
+  filter(Square_Feet_Raw > 200) 
+```
+
+```{r}
+str(full_data_new_sqfeet)
+```
+```{r}
+full_data_new_sqfeet <- full_data_new_sqfeet %>%
+  mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
+
+Q1 <- quantile(full_data_new_sqfeet$Price_Per_SqFt, 0.25, na.rm = TRUE)
+Q3 <- quantile(full_data_new_sqfeet$Price_Per_SqFt, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+full_data_new_sqfeet <- full_data_new_sqfeet %>%
+  filter(Price_Per_SqFt >= (Q1 - 1.5 * IQR),
+         Price_Per_SqFt <= (Q3 + 1.5 * IQR))
+```
+
+```{r}
+ggplot(full_data_new_sqfeet, aes(x = Price_Per_SqFt)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Price per Square Foot (Cleaned)",
+       x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
+```
+```{r}
+# Save combined CSV
+write_csv(full_data_new_sqfeet, "final_data.csv")
+```
 
