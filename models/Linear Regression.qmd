@@ -21,18 +21,16 @@ execute:
 ```{r}
 library(dplyr)
 library(readr)
+library(tidyr)
 
-full_data <- read_csv("../full_data_latest_valid.csv", show_col_types = FALSE)
+full_data <- read_csv("../final_data.csv", show_col_types = FALSE)
 ```
 
 ```{r}
 names(full_data)
 
 ```
-
 ```{r}
-library(dplyr)
-
 full_data <- full_data %>%
   dplyr::select(
     Sale_Date_Raw,
@@ -46,7 +44,6 @@ full_data <- full_data %>%
     Quality,
     Condition,
     Neighborhood,
-    View_Quality,
     Street_Type,
     Utility_Water,
     Utility_Electric,
@@ -66,7 +63,6 @@ full_data <- full_data %>%
     Quality             = as.factor(Quality),
     Condition           = as.factor(Condition),
     Neighborhood        = as.factor(Neighborhood),
-    View_Quality        = as.factor(View_Quality),
     Street_Type         = as.factor(Street_Type),
     Utility_Water       = as.factor(Utility_Water),
     Utility_Electric    = as.factor(Utility_Electric),
@@ -75,16 +71,6 @@ full_data <- full_data %>%
     Year_Built_Raw      = as.numeric(Year_Built_Raw)
   )
 ```
-
-
-# Data Preprocessing
-
-```{r}
-# View structure and summary before preprocessing
-str(full_data)
-summary(full_data)
-```
-
 
 ```{r}
 # Count missing values per column
@@ -98,45 +84,6 @@ data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = mis
 
 ```
 
-
-
-```{r}
-# 1. Drop View_Quality entirely
-full_data <- full_data %>% dplyr::select(-View_Quality)
-
-# 2. Convert fields to numeric
-full_data <- full_data %>%
-  mutate(
-    Bedrooms_Raw    = as.numeric(Bedrooms_Raw),
-    Bathrooms_Raw   = as.numeric(Bathrooms_Raw),
-    Stories_Raw     = as.numeric(Stories_Raw),
-    Year_Built_Raw  = as.numeric(Year_Built_Raw),
-    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
-    Latitude_Raw    = as.numeric(Latitude_Raw),
-    Longitude_Raw   = as.numeric(Longitude_Raw)
-  )
-
-# 3. Drop rows with missing values in crucial fields
-full_data <- full_data %>%
-  filter(
-    !is.na(Square_Feet_Raw),
-    !is.na(Quality),
-    !is.na(Condition),
-    !is.na(Neighborhood),
-    !is.na(Latitude_Raw),
-    !is.na(Longitude_Raw)
-  )
-
-# 4. Impute remaining missing values with median
-full_data$Bedrooms_Raw[is.na(full_data$Bedrooms_Raw)]     <- median(full_data$Bedrooms_Raw, na.rm = TRUE)
-full_data$Bathrooms_Raw[is.na(full_data$Bathrooms_Raw)]   <- median(full_data$Bathrooms_Raw, na.rm = TRUE)
-full_data$Stories_Raw[is.na(full_data$Stories_Raw)]       <- median(full_data$Stories_Raw, na.rm = TRUE)
-full_data$Year_Built_Raw[is.na(full_data$Year_Built_Raw)] <- median(full_data$Year_Built_Raw, na.rm = TRUE)
-```
-
-```{r}
-full_data
-```
 
 
 ```{r}
@@ -172,14 +119,33 @@ full_data[numeric_vars] <- scale(full_data[numeric_vars])
 # Baseline Linear Model
 
 ```{r}
-set.seed(123)  # for reproducibility
+# Only keep neighborhoods with at least 5 records
+neighborhood_counts <- table(full_data$Neighborhood)
+valid_neighborhoods <- names(neighborhood_counts[neighborhood_counts >= 5])
 
-# Create a vector of row indices for training set (80% train, 20% test)
-train_indices <- sample(seq_len(nrow(full_data)), size = 0.8 * nrow(full_data))
+full_data_filtered <- full_data %>%
+  filter(Neighborhood %in% valid_neighborhoods) %>%
+  droplevels()
+```
 
-# Split the data
-train_data <- full_data[train_indices, ]
-test_data  <- full_data[-train_indices, ]
+```{r}
+library(rsample)
+
+set.seed(123)
+split_obj <- initial_split(full_data_filtered, prop = 0.8, strata = Neighborhood)
+
+train_data <- training(split_obj)
+test_data  <- testing(split_obj)
+```
+```{r}
+factor_cols <- names(train_data)[sapply(train_data, is.factor)]
+
+for (col in factor_cols) {
+  test_data[[col]] <- factor(test_data[[col]], levels = levels(train_data[[col]]))
+}
+
+# Drop rows with NAs from unmatched levels (if any sneak in)
+test_data <- test_data %>% drop_na()
 ```
 
 
@@ -228,16 +194,25 @@ With 312 neighborhoods, the linear regression summary becomes nearly unreadable,
 
 ```{r}
 library(forcats)
+library(rsample)
+library(dplyr)
 
-# Collapse rare Neighborhood levels in full_data BEFORE splitting
+# Step 1: Collapse rare Neighborhoods into "Other"
+# Ensure at least 100 occurrences to keep level
 full_data$Neighborhood <- fct_lump_min(full_data$Neighborhood, min = 100, other_level = "Other")
 
-# Optional: limit to top 20 frequent levels only (will still include 'Other')
+# Step 2 (Optional): Keep only the top 20 most frequent levels (including "Other")
 full_data$Neighborhood <- fct_lump_n(full_data$Neighborhood, n = 20)
 
-# Re-split the collapsed dataset using the same indices
-train_collapsed <- full_data[train_indices, ]
-test_collapsed <- full_data[-train_indices, ]
+# Step 3: Drop unused factor levels
+full_data$Neighborhood <- droplevels(full_data$Neighborhood)
+
+# Step 4: Now you can safely stratify on Neighborhood
+set.seed(123)
+split_obj <- initial_split(full_data, prop = 0.8, strata = Neighborhood)
+
+train_collapsed <- training(split_obj)
+test_collapsed  <- testing(split_obj)
 
 ```
 
@@ -311,35 +286,39 @@ hist(resid(step_model), breaks = 50, main = "Residual Histogram")
 ```{r}
 library(glmnet)
 
-# Remove outliers based on standardized residuals from a base linear model
 base_lm <- lm(Sale_Price_Raw ~ ., data = full_data)
 std_resid <- rstandard(base_lm)
 full_data_clean <- full_data[abs(std_resid) < 3, ]
 
-# Re-sample after cleaning
+# Step 3: Stratified sampling AFTER cleaning
 set.seed(123)
-train_indices <- sample(seq_len(nrow(full_data_clean)), size = 0.8 * nrow(full_data_clean))
-train <- full_data_clean[train_indices, ]
-test  <- full_data_clean[-train_indices, ]
+split_obj <- initial_split(full_data_clean, prop = 0.8, strata = Neighborhood)
+train <- training(split_obj)
+test  <- testing(split_obj)
 
-# Prepare data for glmnet (model.matrix automatically handles factors)
+# Step 4: Align factor levels in test set (important for model.matrix)
+factor_cols <- names(train)[sapply(train, is.factor)]
+for (col in factor_cols) {
+  test[[col]] <- factor(test[[col]], levels = levels(train[[col]]))
+}
+test <- test %>% drop_na()
+
+# Step 5: Prepare data for glmnet (model.matrix handles factors)
 x_train <- model.matrix(~ ., data = train[, !names(train) %in% "Sale_Price_Raw"])[, -1]
 y_train <- train$Sale_Price_Raw
 
 x_test <- model.matrix(~ ., data = test[, !names(test) %in% "Sale_Price_Raw"])[, -1]
 y_test <- test$Sale_Price_Raw
 
-# Fit Lasso with cross-validation
+# Step 6: Fit Lasso with cross-validation
 set.seed(123)
 cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
-
-# Optimal lambda
 best_lambda <- cv_lasso$lambda.min
 
-# Fit final Lasso model
+# Step 7: Final Lasso model
 lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 
-# Predict and evaluate
+# Step 8: Predict and evaluate
 pred_lasso <- predict(lasso_model, s = best_lambda, newx = x_test)
 
 RMSE <- sqrt(mean((pred_lasso - y_test)^2))
@@ -348,9 +327,10 @@ R2 <- 1 - sum((pred_lasso - y_test)^2) / sum((y_test - mean(y_test))^2)
 
 cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n\n", RMSE, MAE, R2))
 
-# Show non-zero coefficients
+# Step 9: Show non-zero coefficients
 coef_df <- as.matrix(coef(lasso_model, s = best_lambda))
 non_zero <- coef_df[coef_df[, 1] != 0, , drop = FALSE]
+
 cat("Selected predictors (non-zero coefficients):\n")
 print(non_zero)
 ```
