@@ -282,7 +282,7 @@ hist(resid(step_model), breaks = 50, main = "Residual Histogram")
 ```
 
 
-# Lasso + Outlier Handling
+# Lasso
 ```{r}
 library(glmnet)
 
@@ -290,25 +290,19 @@ base_lm <- lm(Sale_Price_Raw ~ ., data = full_data)
 std_resid <- rstandard(base_lm)
 full_data_clean <- full_data[abs(std_resid) < 3, ]
 
-# Step 3: Stratified sampling AFTER cleaning
-set.seed(123)
-split_obj <- initial_split(full_data_clean, prop = 0.8, strata = Neighborhood)
-train <- training(split_obj)
-test  <- testing(split_obj)
-
 # Step 4: Align factor levels in test set (important for model.matrix)
-factor_cols <- names(train)[sapply(train, is.factor)]
+factor_cols <- names(train_collapsed)[sapply(train_collapsed, is.factor)]
 for (col in factor_cols) {
-  test[[col]] <- factor(test[[col]], levels = levels(train[[col]]))
+  test_collapsed[[col]] <- factor(test_collapsed[[col]], levels = levels(train_collapsed[[col]]))
 }
-test <- test %>% drop_na()
+test_collapsed <- test_collapsed %>% drop_na()
 
 # Step 5: Prepare data for glmnet (model.matrix handles factors)
-x_train <- model.matrix(~ ., data = train[, !names(train) %in% "Sale_Price_Raw"])[, -1]
-y_train <- train$Sale_Price_Raw
+x_train <- model.matrix(~ ., data = train_collapsed[, !names(train_collapsed) %in% "Sale_Price_Raw"])[, -1]
+y_train <- train_collapsed$Sale_Price_Raw
 
-x_test <- model.matrix(~ ., data = test[, !names(test) %in% "Sale_Price_Raw"])[, -1]
-y_test <- test$Sale_Price_Raw
+x_test <- model.matrix(~ ., data = test_collapsed[, !names(test_collapsed) %in% "Sale_Price_Raw"])[, -1]
+y_test <- test_collapsed$Sale_Price_Raw
 
 # Step 6: Fit Lasso with cross-validation
 set.seed(123)
@@ -585,73 +579,6 @@ The model retains its core advantage: automatic feature selection through regula
 
 While the performance metrics are not dramatically better than OLS, Lasso's ability to handle multicollinearity implicitly and streamline the feature set makes it especially valuable for high-dimensional or noisy datasets. In this case, it offers a well-balanced trade-off between interpretability, robustness, and predictive accuracy.
 
-
-# Removing Sale Price Outliers Using Quantiles
-
-```{r}
-# Remove top and bottom 1% of prices
-q_low <- quantile(full_data_clean$Sale_Price_Raw, 0.01)
-q_high <- quantile(full_data_clean$Sale_Price_Raw, 0.99)
-
-trimmed_data <- full_data_clean %>%
-  filter(Sale_Price_Raw >= q_low, Sale_Price_Raw <= q_high)
-```
-
-```{r}
-# Load necessary libraries
-library(caret)
-library(Metrics)
-
-set.seed(123)
-
-trimmed_data <- droplevels(trimmed_data)
-
-#Train/test split
-split_idx <- sample(1:nrow(trimmed_data), 0.8 * nrow(trimmed_data))
-train <- trimmed_data[split_idx, ]
-test <- trimmed_data[-split_idx, ]
-
-
-```
-
-```{r}
-summary(trimmed_data)
-```
-
-```{r}
-# OLS model
-ols_model <- lm(Sale_Price_Raw ~ ., data = train)
-ols_pred <- predict(ols_model, newdata = test)
-
-ols_rmse <- rmse(test$Sale_Price_Raw, ols_pred)
-ols_mae <- mae(test$Sale_Price_Raw, ols_pred)
-ols_r2 <- R2(ols_pred, test$Sale_Price_Raw)
-
-cat(sprintf("OLS (outliers removed)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\n\n", 
-            ols_rmse, ols_mae, ols_r2))
-
-```
-
-
-```{r}
-# Lasso model
-x_train <- model.matrix(Sale_Price_Raw ~ ., train)[, -1]
-y_train <- train$Sale_Price_Raw
-x_test <- model.matrix(Sale_Price_Raw ~ ., test)[, -1]
-y_test <- test$Sale_Price_Raw
-# Already standardized manually — disable glmnet's internal standardization
-cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, standardize = FALSE)
-lasso_pred <- predict(cv_lasso, s = "lambda.min", newx = x_test)
-
-lasso_rmse <- rmse(y_test, lasso_pred)
-lasso_mae <- mae(y_test, lasso_pred)
-lasso_r2 <- R2(lasso_pred, y_test)
-
-cat(sprintf("Lasso (outliers removed)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", 
-            lasso_rmse, lasso_mae, lasso_r2))
-
-```
-After removing sale price outliers using quantile-based filtering, the performance of the OLS and Lasso models shifted notably. The OLS model improved, achieving an RMSE of $148,404, an MAE of $98,699, and an R² of 0.592, indicating that it now explains nearly 60% of the variance in prices. The reduction in both error metrics suggests that removing extreme values helped the linear model fit the central distribution more effectively, resulting in more stable and accurate predictions. In contrast, the Lasso model's performance declined, with an RMSE of $195,204, an MAE of $132,600, and an R² of just 0.294. This drop may indicate that Lasso had previously relied on the variance introduced by outliers to identify predictive structure, and that its regularization now overly penalizes the model in the absence of that variation. Overall, this comparison shows that OLS benefits significantly from outlier removal, while Lasso's advantage diminishes, highlighting the importance of aligning preprocessing choices with the strengths of the modeling technique.
 
 
 # Conclusion
