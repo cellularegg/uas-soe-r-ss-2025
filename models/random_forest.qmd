@@ -18,6 +18,7 @@ if(!require(ranger)) install.packages("ranger"); library(ranger);
 if(!require(purrr)) install.packages("purrr"); library(purrr);
 if(!require(progress)) install.packages("progress"); library(progress);
 if(!require(xgboost)) install.packages("xgboost"); library(xgboost);
+if(!require(GGally)) install.packages("GGally"); library(GGally);
 ```
 
 # Data loading
@@ -70,11 +71,11 @@ for (ntree in trees_to_test) {
   cat("Evaluating num.trees =", ntree, "\n")
   pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
                        total = 10,
-                       complete = "=",   # Completion bar character
-                       incomplete = "-", # Incomplete bar character
-                       current = ">",    # Current bar character
-                       clear = FALSE,    # If TRUE, clears the bar when finish
-                       width = 100)      # Width of the progress bar
+                       complete = "=",
+                       incomplete = "-", 
+                       current = ">",
+                       clear = FALSE,
+                       width = 100)
   for (k in 1:10) {
     pb$tick()
     
@@ -136,20 +137,17 @@ summary(comb_data$Sale_Price_Raw)
 
 ## XG Boosting
 ```{r}
-library(xgboost)
-library(dplyr)
 
-# Reduce dataset to 20% for fast param search
+# reduce dataset to 20% for fast param search
 set.seed(42)
 train_subset <- train_data %>%
   sample_frac(0.2) %>%
   select(where(function(col) !(is.factor(col) && nlevels(col) > 100)))
 
-# Create folds
+# folds
 n <- nrow(train_subset)
 folds <- sample(rep(1:10, length.out = n))
 
-# Define parameter grid
 params_grid <- expand.grid(
   eta = c(0.01, 0.05, 0.1),
   max_depth = c(4, 6, 8),
@@ -159,7 +157,6 @@ params_grid <- expand.grid(
   num.trees = c(100, 200, 300)
 )
 
-# Init results container
 cv_results <- data.frame(
   eta = double(),
   max_depth = integer(),
@@ -173,7 +170,7 @@ cv_results <- data.frame(
   MAPE = double()
 )
 
-# Loop over param combinations
+# loop over param combinations
 for (i in seq_len(nrow(params_grid))) {
   params <- params_grid[i, ]
   cat(sprintf("\nEvaluating combination %d of %d\n", i, nrow(params_grid)))
@@ -247,8 +244,6 @@ cv_results_ <- cv_results %>%
     )
   )
 
-library(GGally)
-
 best_configs <- cv_results_ %>%
   group_by(eta, max_depth, subsample, colsample_bytree, gamma) %>%
   summarise(
@@ -290,7 +285,7 @@ best_configs <- cv_results_ %>%
     mean_MAPE = mean(MAPE),
     .groups = "drop"
   ) %>%
-  arrange(mean_RMSE)  # You can switch to mean_MAE or mean_MAPE if you prefer
+  arrange(mean_RMSE)
 
 cat("Top 3 configurations based on RMSE:\n")
 print(head(best_configs, 3))
@@ -299,7 +294,6 @@ print(head(best_configs, 3))
 ```
 
 ```{r}
-library(dplyr)
 best_rmse_params <- cv_results %>%
   group_by(eta, num.trees) %>%
   summarise(mean_rmse = mean(RMSE), .groups = "drop") %>%
@@ -307,8 +301,6 @@ best_rmse_params <- cv_results %>%
   dplyr::slice(1)
 
 print(best_rmse_params)
-
-library(dplyr)
 
 # Best by MAE
 best_mae <- cv_results %>%
@@ -339,27 +331,21 @@ library(Matrix)
 library(dplyr)
 library(progress)
 
-# Remove target variables from features
 train_features <- train_data %>% select(-Sale_Price_log, -Sale_Price_Raw)
 test_features  <- test_data %>% select(-Sale_Price_log, -Sale_Price_Raw)
 
-# Combine for consistent encoding
 combined_matrix_data <- rbind(train_features, test_features)
 sparse_matrix <- sparse.model.matrix(~ . -1, data = combined_matrix_data)
 
-# Split into train and test matrices
 train_matrix <- sparse_matrix[1:nrow(train_data), ]
 test_matrix  <- sparse_matrix[(nrow(train_data) + 1):nrow(combined_matrix_data), ]
 
-# Labels
 train_label <- train_data$Sale_Price_log
 test_label  <- test_data$Sale_Price_log
 
-# Create DMatrix
 dtrain <- xgb.DMatrix(data = train_matrix, label = train_label)
 dtest  <- xgb.DMatrix(data = test_matrix, label = test_label)
 
-# Predefine model params
 best_params <- list(
   eta = 0.1,
   max_depth = 8,
@@ -373,7 +359,6 @@ best_params <- list(
 ```
 
 ```{r}
-# Run final training with early stopping and callback
 xgb_model <- xgb.train(
   params = best_params,
   data = dtrain,
@@ -381,17 +366,14 @@ xgb_model <- xgb.train(
   watchlist = list(train = dtrain),
   verbose = 1
 )
-#cat("Stopped at best_iteration =", cv$best_iteration, "\n")
 ```
 
 # Test the final model
 ```{r}
-# Predict
 log_preds <- predict(xgb_model, dtest)
 preds <- exp(log_preds) - 1
 true  <- exp(test_label) - 1
 
-# Metrics
 rmse <- sqrt(mean((preds - true)^2))
 mae  <- mean(abs(preds - true))
 mape <- mean(abs((true - preds) / true)) * 100
@@ -411,19 +393,19 @@ abline(0, 1, col = "red")
 residuals <- true - preds
 df_resid <- data.frame(true, preds, residuals, error_pct = residuals / true * 100)
 
-# 1a. Residual vs Prediction plot
+# Residual vs Prediction plot
 library(ggplot2)
 ggplot(df_resid, aes(x = preds, y = residuals)) +
   geom_point(alpha = 0.3) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
   labs(title = "Residuals vs Predicted", x = "Predicted", y = "Residual")
 
-# 1b. Residual distribution
+# Residual distribution
 ggplot(df_resid, aes(x = residuals)) +
   geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
   labs(title = "Distribution of Residuals", x = "Residual", y = "Count")
 
-# 1c. By segment – e.g., by number of bedrooms
+# By segment – e.g., by number of bedrooms
 ggplot(df_resid %>% mutate(bin = cut(preds, breaks = 5)),
        aes(x = bin, y = error_pct)) +
   geom_boxplot() +
@@ -432,7 +414,6 @@ ggplot(df_resid %>% mutate(bin = cut(preds, breaks = 5)),
 ```
 # RMSE by bedroom count
 ```{r}
-# Assuming 'Bedrooms_Raw' and other features available in test_data
 df_resid$Bedrooms_Raw <- test_data$Bedrooms_Raw
 
 library(dplyr)
