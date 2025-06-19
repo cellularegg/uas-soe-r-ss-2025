@@ -153,11 +153,6 @@ test_data <- test_data %>% drop_na()
 lm_model <- lm(Sale_Price_Raw ~ ., data = train_data)
 summary(lm_model)
 ```
-This baseline linear regression model, trained on the uncollapsed training data with full neighborhood granularity, achieves an R² of 0.3157, indicating that approximately 31.57% of the variation in sale prices is explained by the included predictors. The residual standard error is around $1.09 million, reflecting the average deviation of predictions from actual sale prices.
-
-Key variables such as Sale_Date_Raw, Square_Feet_Raw, and several Quality levels (e.g., Excellent, Very Good) are highly significant and contribute strongly to the model. Latitude has a statistically significant negative relationship with price, while Longitude is not significant. Interestingly, some bedrooms and bathroom counts show strong effects, but many neighborhoods do not show statistical significance—highlighting the sparsity and noise introduced by the large number of neighborhood categories.
-
-In summary, while the model has slightly better explanatory power than the collapsed version, the inclusion of over 300 neighborhood dummies introduces noise and multicollinearity, suggesting potential overfitting and model complexity that could be reduced.
 
 
 ## Making Predictions and Evaluation
@@ -167,28 +162,16 @@ preds <- predict(lm_model, newdata = test_data)
 actuals <- test_data$Sale_Price_Raw
 
 # Evaluate
-RMSE <- sqrt(mean((preds - actuals)^2))
-MAE <- mean(abs(preds - actuals))
+RMSE_base <- sqrt(mean((preds - actuals)^2))
+MAE_base <- mean(abs(preds - actuals))
 R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
 
-cat(sprintf("Test RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("Test RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_base, MAE_base, R2))
 ```
-
-The linear regression model yielded a Root Mean Square Error (RMSE) of approximately $1.15 million, a Mean Absolute Error (MAE) of about $185,773, and an R-squared (R²) value of 0.348 on the test set. This indicates that the model captures roughly 35% of the variance in sale prices, meaning that while it explains some of the underlying trends, a substantial portion of the variation remains unaccounted for. The relatively high RMSE suggests that individual price predictions can deviate significantly from the actual values — especially for high-priced properties. These results imply that either the relationship between predictors and price is more complex than a linear model can capture, or that additional relevant variables and transformations (like log transformation or outlier treatment) are needed to improve accuracy.
-
-Several predictors are highly significant (e.g., Square_Feet_Raw, Sale_Date_Raw, Quality, Year_Built_Raw, and Neighborhood), confirming these are strong drivers of price.
-
-However, many neighborhood factors have high p-values, indicating they contribute little and may be noise, which can inflate model complexity without improving performance.
-
-
-With 312 neighborhoods, the linear regression summary becomes nearly unreadable, and model interpretability and generalization both suffer due to:
-
-- High dimensionality from one-hot encoding
-
-- Multicollinearity across neighborhoods
-
-- Many sparse levels (some with <50 observations)
-
+```{r}
+MAPE_base <- mean(abs((actuals - preds) / actuals)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_base))
+```
 
 ## Collapse Rare Neighborhoods
 
@@ -226,7 +209,7 @@ test_collapsed  <- testing(split_obj)
 lm_model_clean <- lm(Sale_Price_Raw ~ ., data = train_collapsed)
 summary(lm_model_clean)
 ```
-This linear regression model, trained on the collapsed training data, explains about 23% of the variance in sale prices (R² = 0.230), indicating limited predictive power. The residual standard error of approximately $1.15 million reflects substantial average prediction error. Key predictors like square footage, sale date, bathrooms, bedrooms, and various quality levels are highly significant, confirming their influence on home prices. Some neighborhood and utility variables also show significance, though many remain statistically insignificant, suggesting they could be simplified further. Overall, collapsing rare neighborhoods helped manage complexity, but model fit remains moderate.
+
 
 ## Predict and Evaluate
 
@@ -236,23 +219,16 @@ This linear regression model, trained on the collapsed training data, explains a
 preds <- predict(lm_model_clean, newdata = test_collapsed)
 actuals <- test_collapsed$Sale_Price_Raw
 
-RMSE <- sqrt(mean((preds - actuals)^2))
-MAE <- mean(abs(preds - actuals))
+RMSE_collapsed <- sqrt(mean((preds - actuals)^2))
+MAE_collapsed <- mean(abs(preds - actuals))
 R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
 
-cat(sprintf("Cleaned LM Model — RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("Cleaned LM Model — RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_collapsed, MAE_collapsed, R2))
 ```
-After simplifying the Neighborhood variable by grouping less common neighborhoods into a single "Other" category, the linear model's predictive performance declined:
-
-- Root Mean Squared Error (RMSE) rose to $1,213,242, indicating the average prediction is off by over $1.2 million, heavily influenced by large outliers.
-
-- Mean Absolute Error (MAE) increased to $209,550, showing the typical error magnitude in sale price predictions.
-
-- R² dropped to 0.277, meaning the model now explains only 27.7% of the variance in home sale prices — a reduction in explanatory power.
-
-
-By collapsing Neighborhood, we lost fine-grained location data — a key driver of housing prices. Real estate value is highly localized, and removing specific neighborhood identifiers blunts the model's ability to capture that detail.
-
+```{r}
+MAPE_collapsed <- mean(abs((actuals - preds) / actuals)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_collapsed))
+```
 
 
 # Feature Selection (Stepwise)
@@ -263,7 +239,6 @@ library(MASS)
 step_model <- stepAIC(lm_model_clean, direction = "both")
 summary(step_model)
 ```
-This linear regression model, trained on the collapsed training dataset using stepwise AIC selection, explains about 23% of the variance in sale prices (R² = 0.2297), indicating moderate explanatory power. The residual standard error is approximately $1.15 million, suggesting substantial variability in predictions—expected given the broad range of property values. Statistically significant predictors (p < 0.05) include sale date, square footage, number of bedrooms and bathrooms, story count, building quality categories, some neighborhoods, street type, sewer availability, and year built. For example, higher square footage and better quality categories (e.g., "Excellent", "Very Good Plus") are associated with substantially higher sale prices, while factors like "STREET UNPAVED" or lacking sewer infrastructure are associated with lower values. Geographic features like longitude remain significant, whereas latitude was dropped during model selection. Overall, the model captures several meaningful drivers of property value, though with room for improvement in predictive accuracy.
 
 # Model Evaluation
 
@@ -315,11 +290,11 @@ lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 # Step 8: Predict and evaluate
 pred_lasso <- predict(lasso_model, s = best_lambda, newx = x_test)
 
-RMSE <- sqrt(mean((pred_lasso - y_test)^2))
-MAE <- mean(abs(pred_lasso - y_test))
+RMSE_lasso <- sqrt(mean((pred_lasso - y_test)^2))
+MAE_lasso <- mean(abs(pred_lasso - y_test))
 R2 <- 1 - sum((pred_lasso - y_test)^2) / sum((y_test - mean(y_test))^2)
 
-cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n\n", RMSE, MAE, R2))
+cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n\n", RMSE_lasso, MAE_lasso, R2))
 
 # Step 9: Show non-zero coefficients
 coef_df <- as.matrix(coef(lasso_model, s = best_lambda))
@@ -329,7 +304,10 @@ cat("Selected predictors (non-zero coefficients):\n")
 print(non_zero)
 ```
 
-The Lasso regression model achieved strong predictive performance, with an RMSE of approximately $235,196, an MAE of $119,263, and an R² of 0.616, indicating that it explains about 61.6% of the variance in housing prices. This reflects a well-calibrated model capable of reasonably accurate predictions across a diverse dataset. Lasso’s regularization shrank many coefficients to zero, leaving a focused subset of influential predictors, including square footage (by far the most impactful), location (latitude, longitude, and specific neighborhoods), structural features (like number of bedrooms, stories, and year built), and detailed quality and condition ratings. Notably, high-quality homes (e.g., “Excellent” or “Very Good Plus”) and certain neighborhoods had large positive coefficients, while poor utility access (e.g., no sewer/septic or power) and lower condition ratings pulled prices down. Interestingly, properties lacking standard road access or with no power comments had elevated price signals, likely reflecting niche, high-value parcels. Overall, the model balances accuracy and interpretability, highlighting key drivers of home value while managing complexity and multicollinearity.
+```{r}
+MAPE_lasso <- mean(abs((y_test - pred_lasso) / y_test)) * 100
+cat(sprintf("Lasso MAPE: %.2f%%\n", MAPE_lasso))
+```
 
 
 ```{r}
@@ -383,13 +361,23 @@ preds <- predict(model_step, newdata = test)
 actuals <- test$Log_Sale_Price
 
 # Step 6: Metrics
-RMSE <- sqrt(mean((preds - actuals)^2))
-MAE  <- mean(abs(preds - actuals))
+RMSE_step_log <- sqrt(mean((preds - actuals)^2))
+MAE_step_log  <- mean(abs(preds - actuals))
 R2   <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
 
-cat(sprintf("Stepwise Log-LM RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("Stepwise Log-LM RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_step_log, MAE_step_log, R2))
 
 ```
+
+```{r}
+preds_exp <- exp(preds)
+actuals_exp <- exp(actuals)
+MAPE_step_log <- mean(abs((actuals_exp - preds_exp) / actuals_exp)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_step_log))
+```
+
+
+
 ```{r}
 summary(model_full)
 ```
@@ -398,7 +386,6 @@ summary(model_full)
 summary(model_step)
 ```
 
-The linear regression model using log-transformed sale prices achieved an R² of 0.484, meaning it explains approximately 48.4% of the variance in logged housing prices — a significant improvement over models on the raw price scale. The residual standard error of 0.574 (in log dollars) suggests reasonably tight clustering of predictions around the true values on the log scale. Many predictors are highly statistically significant, including square footage, sale date, latitude, number of bathrooms, and detailed quality and condition indicators. The model also captures meaningful geographic and infrastructure effects — for instance, certain neighborhoods and street types show strong associations, as do utility access variables like sewer/septic status and electrical service. Notably, lack of sewer or power access corresponds with substantial negative coefficients, while high-quality ratings (e.g., “Excellent” or “Very Good Plus”) are linked to large price premiums. Although this model doesn't regularize coefficients like Lasso and is more susceptible to multicollinearity, it performs well in terms of explanatory power and provides interpretable estimates of each variable's marginal impact. Overall, the log transformation clearly improves model behavior, and the results offer valuable insight into the structural and locational drivers of property value.
 
 
 # Full Lasso Pipeline with Log-Transformed Target
@@ -431,22 +418,23 @@ lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 # Predict and transform back
 preds <- predict(lasso_model, s = best_lambda, newx = x_test)
 actuals <- y_test
-RMSE <- sqrt(mean((preds - actuals)^2))
-MAE <- mean(abs(preds - actuals))
+RMSE_lasso_log <- sqrt(mean((preds - actuals)^2))
+MAE_lasso_log <- mean(abs(preds - actuals))
 R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
 
-cat(sprintf("Log-Transformed Lasso RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("Log-Transformed Lasso RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_lasso_log, MAE_lasso_log, R2))
 
 # Non-zero coefficients
 cat("Selected predictors (non-zero coefficients):\n")
 print(coef(lasso_model)[coef(lasso_model) != 0])
 ```
+```{r}
+preds_exp <- exp(preds)
+actuals_exp <- exp(actuals)
+MAPE_lasso_log <- mean(abs((actuals_exp - preds_exp) / actuals_exp)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_lasso_log))
+```
 
-The Lasso regression model trained on log-transformed sale prices achieved an RMSE of 0.57, an MAE of 0.32, and an R² of 0.495 on the log scale, indicating a reasonably strong fit in terms of explained variance. However, when the predictions were back-transformed to the original dollar scale, the model’s performance declined: RMSE rose to $269,625, MAE to $161,591, and R² dropped to 0.260. This was worse than the original Lasso model without log transformation, which achieved lower error metrics and a higher R² (~0.303), suggesting that the log transformation did not yield the expected improvement.
-
-While log-transforming the target variable is often beneficial for stabilizing variance and mitigating skewness, in this case it may have introduced distortion upon back-transformation or obscured meaningful structure in the raw sale prices. It's also possible that outliers and heteroscedasticity were already being effectively managed by Lasso’s inherent regularization, making the transformation redundant or even counterproductive.
-
-Nonetheless, the model retained a concise set of meaningful predictors with non-zero coefficients, including square footage, location, home features, quality ratings, and utility access. This reaffirms Lasso’s strength in variable selection and multicollinearity control, even if the log-scale modeling choice did not ultimately enhance performance.
 
 
 # Multicollinearity Check
@@ -455,11 +443,7 @@ Nonetheless, the model retained a concise set of meaningful predictors with non-
 library(car)
 vif(step_model)
 ```
-The multicollinearity analysis using GVIF indicates that the predictors in the linear regression model are generally well-behaved. All variables show GVIF-adjusted values below the commonly cited concern threshold of 2, suggesting that multicollinearity is not a significant issue. The highest observed values are for Bathrooms_Raw (GVIF ≈ 1.75) and Bedrooms_Raw (GVIF ≈ 1.52), reflecting moderate correlation — which is expected, as both are typically larger in more spacious homes.
 
-Other numeric predictors such as Longitude_Raw, Stories_Raw, and Year_Built_Raw also fall well within safe ranges. Importantly, categorical variables like Quality, Neighborhood, and Street_Type have low adjusted GVIF values, indicating they contribute unique and non-redundant information to the model. This reinforces confidence in the model's structure and suggests that feature inflation is minimal.
-
-While no corrective action is strictly necessary, the slight overlap among housing feature variables may still benefit from dimensionality reduction or regularization techniques (e.g., Lasso) to further improve model stability and interpretability. Overall, the model’s predictors are statistically independent enough to support reliable inference and prediction.
 
 ```{r}
 # Load necessary library
@@ -483,10 +467,7 @@ ggcorrplot(cor_matrix,
            ggtheme = theme_minimal())
 
 ```
-Decision Rule
-- Remove the variable with higher avg. abs. correlation.
 
-- If they’re close, consider which one is more interpretable or has stronger individual correlation with sale price.
 
 ```{r}
 # Compute correlation matrix
@@ -530,16 +511,18 @@ lm_model <- lm(Sale_Price_Raw ~ ., data = train)
 pred <- predict(lm_model, newdata = test)
 
 # Evaluate
-RMSE <- sqrt(mean((pred - test$Sale_Price_Raw)^2))
-MAE <- mean(abs(pred - test$Sale_Price_Raw))
+RMSE_nobathrooms <- sqrt(mean((pred - test$Sale_Price_Raw)^2))
+MAE_nobathrooms <- mean(abs(pred - test$Sale_Price_Raw))
 R2 <- 1 - sum((pred - test$Sale_Price_Raw)^2) / sum((test$Sale_Price_Raw - mean(test$Sale_Price_Raw))^2)
 
-cat(sprintf("OLS (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("OLS (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_nobathrooms, MAE_nobathrooms, R2))
 
 ```
-After removing Bathrooms_Raw—which exhibited moderate multicollinearity with Bedrooms_Raw—the ordinary least squares (OLS) regression model showed improved simplicity but only modest gains in performance. The model achieved an RMSE of $241,245, an MAE of $119,560, and an R² of 0.594, meaning it explains about 59.4% of the variance in housing prices. Compared to earlier versions, these results represent a moderate improvement in explanatory power and similar predictive accuracy, suggesting that eliminating the redundant bathroom variable slightly enhanced model stability without significantly changing its overall behavior.
 
-This outcome supports the idea that reducing multicollinearity—by removing highly correlated predictors—can help streamline the model and improve interpretability, even without relying on more complex techniques like regularization or tuning. While the effect is not dramatic, it confirms that careful feature selection remains a valuable tool for building robust linear models.
+```{r}
+MAPE_nobathrooms <- mean(abs((test$Sale_Price_Raw - pred) / test$Sale_Price_Raw)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_nobathrooms))
+```
 
 # Updated Lasso Model Without Bathrooms_Raw
 
@@ -563,41 +546,78 @@ lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
 
 # Predict & evaluate
 pred <- predict(lasso_model, s = best_lambda, newx = x_test)
-RMSE <- sqrt(mean((pred - y_test)^2))
-MAE <- mean(abs(pred - y_test))
+RMSE_lasso_nobathrooms <- sqrt(mean((pred - y_test)^2))
+MAE_lasso_nobathrooms <- mean(abs(pred - y_test))
 R2 <- 1 - sum((pred - y_test)^2) / sum((y_test - mean(y_test))^2)
 
-cat(sprintf("Lasso (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE, MAE, R2))
+cat(sprintf("Lasso (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_lasso_nobathrooms, MAE_lasso_nobathrooms, R2))
 
-# Optional: show non-zero coefficients
+# Show non-zero coefficients
 cat("Selected predictors:\n")
 print(coef(lasso_model)[coef(lasso_model) != 0])
 ```
-After removing the multicollinear Bathrooms_Raw variable, the Lasso regression model achieved solid and stable performance, with an RMSE of $241,187, MAE of $119,425, and an R² of 0.595. These results are nearly identical to the corresponding simplified OLS model, indicating that Lasso remains competitive even when redundancy is manually addressed.
 
-The model retains its core advantage: automatic feature selection through regularization, which results in a parsimonious set of predictors that captures key drivers of sale price without overfitting. The selected variables include a mix of structural attributes (e.g., square footage, stories), geographic features (latitude, longitude), quality ratings, and neighborhood indicators—reinforcing the model’s ability to isolate the most influential factors.
-
-While the performance metrics are not dramatically better than OLS, Lasso's ability to handle multicollinearity implicitly and streamline the feature set makes it especially valuable for high-dimensional or noisy datasets. In this case, it offers a well-balanced trade-off between interpretability, robustness, and predictive accuracy.
-
-
-
-# Conclusion
-
-Following a comprehensive modeling process—spanning data cleaning, feature engineering, outlier removal, and algorithm selection—the Lasso regression model with standardized residual-based outlier filtering emerged as the best performer. This final model achieved an RMSE of approximately $235,196, MAE of $119,263, and an R² of 0.616, meaning it explains about 61.6% of the variance in residential sale prices. These results represent a strong balance between predictive accuracy and model simplicity, particularly given the real-world variability of property data.
-
-The most impactful improvement came from removing outliers based on standardized residuals, which allowed the model to focus on more typical market behavior and avoid distortion from extreme values. While earlier models—especially those trained on unfiltered or unscaled data—suffered from inflated error metrics and unstable coefficients, this cleaned and refined dataset provided a much more stable learning foundation.
-
-Notably, Lasso’s regularization played a key role by automatically shrinking less important variables and selecting a sparse set of predictors that included core structural features (e.g., square footage, stories), locational attributes (latitude, longitude, neighborhood), and detailed quality and condition indicators. Even with outliers removed and multicollinearity reduced, Lasso continued to deliver robust performance and improved interpretability over more complex models.
-
-In conclusion, this Lasso model—built on rigorous preprocessing and smart regularization—offers a reliable, interpretable, and generalizable framework for predicting residential property values. Future enhancements might include non-linear models, interaction terms, or spatial modeling layers, but this approach already provides a solid baseline for practical applications.
-
-Full formula of the final model of choice:
-
-y =−32,872.71+46.44⋅Sale_Date_Raw+615,281.25⋅Square_Feet_Raw+27,144.44⋅Latitude_Raw−1,576.82⋅Longitude_Raw−26,897.08⋅Bedrooms_Raw−8,733.02⋅Stories_Raw+77,804.62⋅QualityAverage Plus+551,105.24⋅QualityExcellent−48,172.89⋅QualityFair−31,559.97⋅QualityFair Plus+141,495.64⋅QualityGood+285,763.34⋅QualityGood Plus−81,765.66⋅QualityLow−72,437.97⋅QualityLow Plus+341,569.84⋅QualityVery Good+814,971.25⋅QualityVery Good Plus−65,935.43⋅ConditionExtra Poor−3,581.34⋅ConditionFair+14,527.32⋅ConditionGood−17,954.62⋅ConditionPoor−33,236.11⋅ConditionUninhabitable−2,829.11⋅ConditionVery Poor+Neighborhood Coefficients (various)+75,015.49⋅Street_TypeSTREET NO ROAD+14,961.43⋅Street_TypeSTREET UNPAVED+13,493.34⋅Utility_ElectricPOWER INSTALLED−145,577.25⋅Utility_ElectricPOWER NO - COMMENT−444,262.58⋅Utility_SewerSEWER/SEPTIC AVAIL−527,653.39⋅Utility_SewerSEWER/SEPTIC INSTALLED−406,656.20⋅Utility_SewerSEWER/SEPTIC NO−251,631.65⋅Utility_SewerSEWER/SEPTIC NO PERC+184,513.50⋅Improved_Vacant_Raw1−9,154.39⋅Year_Built_Raw
+```{r}
+MAPE_lasso_nobathrooms <- mean(abs((y_test - pred) / y_test)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_lasso_nobathrooms))
+```
 
 
+# Summary
+
+```{r}
+# Summary Table with MAE, RMSE, and MAPE
+results_summary <- data.frame(
+  Model = c(
+    "Baseline Linear Model",
+    "Cleaned Linear Model (Neighborhood Collapsed)",
+    "Lasso Model",
+    "OLS (No Bathrooms)",
+    "Lasso (No Bathrooms)"
+  ),
+  MAE = c(
+    MAE_base,
+    MAE_collapsed,
+    MAE_lasso,
+    MAE_nobathrooms,
+    MAE_lasso_nobathrooms
+  ),
+  RMSE = c(
+    RMSE_base,
+    RMSE_collapsed,
+    RMSE_lasso,
+    RMSE_nobathrooms,
+    RMSE_lasso_nobathrooms
+  ),
+  MAPE = c(
+    MAPE_base,
+    MAPE_collapsed,
+    MAPE_lasso,
+    MAPE_nobathrooms,
+    MAPE_lasso_nobathrooms
+  )
+)
+
+# Print formatted summary table
+knitr::kable(results_summary, digits = 2, caption = "Summary of MAE, RMSE, and MAPE by Model")
 
 
+```
+
+
+
+# Cross-Validation
+
+```{r}
+library(caret)
+
+set.seed(123)
+ctrl <- trainControl(method = "cv", number = 10)
+
+cv_model <- train(Sale_Price_Raw ~ ., data = full_data, method = "lm", trControl = ctrl)
+
+print(cv_model)
+```
 
 
 
