@@ -561,6 +561,9 @@ print(coef(lasso_model)[coef(lasso_model) != 0])
 MAPE_lasso_nobathrooms <- mean(abs((y_test - pred) / y_test)) * 100
 cat(sprintf("MAPE: %.2f%%\n", MAPE_lasso_nobathrooms))
 ```
+```{r}
+str(full_data_clean)
+```
 
 
 # Summary
@@ -606,19 +609,52 @@ knitr::kable(results_summary, digits = 2, caption = "Summary of MAE, RMSE, and M
 
 
 
-# Cross-Validation
+# Cross-Validation for Lasso (no Bathrooms)
 
 ```{r}
+library(glmnet)
 library(caret)
+library(Metrics)
 
 set.seed(123)
-ctrl <- trainControl(method = "cv", number = 10)
 
-cv_model <- train(Sale_Price_Raw ~ ., data = full_data, method = "lm", trControl = ctrl)
+# Set up model matrix (drop intercept)
+x <- model.matrix(Sale_Price_Raw ~ ., data = full_data_clean)[, -1]
+y <- full_data_clean$Sale_Price_Raw
 
-print(cv_model)
+# Cross-validated Lasso using caret + glmnet
+ctrl <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final"
+)
+
+lasso_cv <- train(
+  x = x,
+  y = y,
+  method = "glmnet",
+  trControl = ctrl,
+  tuneLength = 10
+)
+
+# Extract best lambda
+best_lambda <- lasso_cv$bestTune$lambda
+
+# Predicted vs actual from CV
+pred_df <- lasso_cv$pred
+pred_df <- pred_df[pred_df$lambda == best_lambda, ]
+
+# Calculate metrics
+rmse  <- RMSE(pred_df$pred, pred_df$obs)
+mae   <- MAE(pred_df$pred, pred_df$obs)
+r2    <- R2(pred_df$pred, pred_df$obs)
+mape  <- mape(pred_df$obs, pred_df$pred) * 100
+
+# Output
+cat(sprintf("Lasso (Full Data, No Bathrooms)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\nMAPE: %.2f%%\n",
+            rmse, mae, r2, mape))
+
 ```
-
 
 
 
