@@ -238,21 +238,6 @@ ggplot(full_data, aes(x = factor(Bathrooms_Raw), y = Sale_Price_Raw)) +
   theme_minimal()+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
-#### Zooming in for more information
-
-```{r}
-ggplot(full_data, aes(x = factor(Bathrooms_Raw), y = Sale_Price_Raw)) +
-  geom_boxplot(fill = "#9467bd", alpha = 0.6) +
-  scale_y_log10(labels = scales::dollar,
-  limits = c(50000, 1000000)) +
-  labs(
-    title = "Sale Price by Number of Bathrooms",
-    x = "Bathrooms",
-    y = "Sale Price"
-  ) +
-  theme_minimal()+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
 
 ### Stories
 
@@ -276,23 +261,6 @@ ggplot(full_data, aes(x = factor(Stories_Raw), fill = factor(Stories_Raw))) +
 ggplot(full_data, aes(x = factor(Stories_Raw), y = Sale_Price_Raw, fill = factor(Stories_Raw))) +
   geom_boxplot(alpha = 0.7) +
   scale_y_log10(labels = scales::dollar) +
-  scale_fill_brewer(palette = "Pastel2") +
-  labs(
-    title = "Sale Price by Number of Stories",
-    x = "Stories",
-    y = "Sale Price",
-    fill = "Stories"
-  ) +
-  theme_minimal()
-```
-
-#### Zooming in for more information
-
-```{r}
-ggplot(full_data, aes(x = factor(Stories_Raw), y = Sale_Price_Raw, fill = factor(Stories_Raw))) +
-  geom_boxplot(alpha = 0.7) +
-  scale_y_log10(labels = scales::dollar,
-  limits = c(50000, 1000000)) +
   scale_fill_brewer(palette = "Pastel2") +
   labs(
     title = "Sale Price by Number of Stories",
@@ -348,7 +316,7 @@ boxplot_stats
 
 ### Mapping Median Price per Sqft Across Pierce County
 
-```{r warning=FALSE}} 
+```{r warning=FALSE} 
 # 1. Load Pierce County boundary (Washington = '53')
 pierce_county <- counties(state = "53", cb = TRUE) %>%
   filter(NAME == "Pierce")
@@ -600,14 +568,9 @@ summary(full_data_sf$Sale_Price_Raw)
 ```{r}
 ggplot(full_data_sf, aes(x = Price_per_sqft)) +
   geom_boxplot() +
-  scale_x_log10(labels = scales::dollar) +
-  labs(
-    title = "Distribution of Sales Price per Square Foot",
-    x = "Sales Price",
-  ) +
-  theme_minimal(base_size = 21)+
-  theme(axis.text.y=element_blank(),
-        axis.ticks.y=element_blank())
+  labs(title = "Distribution of Price per Square Foot",
+       x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
 
 ```
 
@@ -665,21 +628,6 @@ ggplot(full_data, aes(x = Quality, y = Sale_Price_Raw)) +
 
 ```
 
-
-
-#### Zooming in for more information
-,
-  limits = c(50000, 1000000)
-  
-```{r}
-ggplot(full_data, aes(x = Quality, y = Sale_Price_Raw)) +
-  geom_boxplot(fill = "#3498DB", alpha = 0.6) +
-  scale_y_log10(labels = scales::dollar, limits = c(50000, 1000000)) +
-  labs(title = "Sale Price by Quality", x = "Quality", y = "Sale Price") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
 ### Condition
 ```{r}
 full_data$Condition <- factor(full_data$Condition, levels = c(
@@ -689,16 +637,6 @@ full_data$Condition <- factor(full_data$Condition, levels = c(
 ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
   geom_boxplot(fill = "#27AE60", alpha = 0.6) +
   scale_y_log10(labels = scales::dollar) +
-  labs(title = "Sale Price by Condition", x = "Condition", y = "Sale Price") +
-  theme_minimal()
-```
-
-#### Zooming in for more information
-
-```{r}
-ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
-  geom_boxplot(fill = "#27AE60", alpha = 0.6) +
-  scale_y_log10(labels = scales::dollar, limits = c(50000, 1000000)) +
   labs(title = "Sale Price by Condition", x = "Condition", y = "Sale Price") +
   theme_minimal()
 ```
@@ -716,7 +654,8 @@ ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
   facet_wrap(~ Quality, scales = "free") +
   labs(title = "Sale Price vs. Square Feet by Quality",
        x = "Square Feet", y = "Sale Price") +
-  theme_minimal()
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 
@@ -738,7 +677,7 @@ filtered_data %>%
   geom_boxplot(outlier.shape = NA, fill = "#3498DB", alpha = 0.6) +
   scale_y_log10(labels = scales::dollar) +
   labs(
-    title = "Sale Price by Quality across Neighborhoods",
+    title = "Sale Price by Quality across Top 5 Neighborhoods",
     x = "Quality",
     y = "Sale Price"
   ) +
@@ -769,23 +708,26 @@ full_data %>%
 
 4. Are price patterns different in northern vs. southern areas (by Latitude)?
 
-```{r}
 
-full_data %>%
-  mutate(Region = ifelse(Latitude_Raw > 47.1, "North", "South")) %>%  
-  # Pierce County spans roughly from 46.8°N to 47.4°N latitude. 
-  #So, 47.1 is approximately the midpoint of the county’s north–south range.
-  ggplot(aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+```{r}
+# Filter and classify region
+full_data_new <- full_data %>%
+  filter(!is.na(Square_Feet_Raw), !is.na(Sale_Price_Raw), !is.na(Latitude_Raw)) %>%
+  mutate(Region = ifelse(Latitude_Raw > 47.1, "North", "South"))
+
+# Generate plot
+ggplot(full_data_new, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
   geom_point(alpha = 0.3, size = 0.5) +
-  geom_smooth(method = "loess", color = "red") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
   facet_wrap(~ Region, scales = "free") +
   scale_y_log10(labels = scales::dollar) +
-  labs(title = "Price vs. Size in North vs. South Pierce County",
-       x = "Square Feet", y = "Sale Price") +
+  labs(
+    title = "Price vs. Size in North vs. South Pierce County",
+    x = "Square Feet",
+    y = "Sale Price"
+  ) +
   theme_minimal()
-
 ```
-
 
 5. Who’s in the top 1% of price per sqft? What are they like?
 
@@ -799,6 +741,4 @@ full_data %>%
   count(Quality, Condition, sort = TRUE) %>%
   knitr::kable()
 ```
-
-
 
