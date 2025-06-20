@@ -1,0 +1,202 @@
+---
+title: "Pierce County Property Analysis: Data Loading"
+subtitle: "Step 1: Acquiring and Loading Raw Data"
+author: "Your Group Name"
+date: "today"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo 
+    code-fold: true
+    code-summary: "Show/Hide Code"
+    df-print: kable # For nice table printing with knitr::kable
+editor: source
+execute:
+  echo: true
+  warning: false   # Suppress warnings globally for now
+  message: false   # Suppress messages globally for now
+  error: true      # Display errors if they occur
+---
+
+# 1. Introduction
+
+This document outlines the first step in our analysis of Pierce County property data: loading all raw data files into a DuckDB in-memory database. Each text file will be loaded into its own table with column names derived from the provided metadata (PDFs). All columns will initially be loaded as `VARCHAR` (text) to ensure robust loading; type conversions will occur during the subsequent cleaning phase.
+
+# 2. Setup and Configuration
+
+## 2.1. Load Libraries and Functions
+
+First, we load necessary R packages and our custom data loading function.
+
+```{r}
+#| label: setup-load-libs-funcs
+
+# Ensure these packages are installed: install.packages(c("DBI", "duckdb", "knitr", "dplyr"))
+# library(DBI)
+# library(duckdb)
+library(knitr) # For kable()
+library(dplyr) # For glimpse() later
+# library(arrow)
+```
+
+```{r}
+full_data <- read.csv("./data/final_data.csv")
+
+cat("--- Data loaded successfully ---\n")
+cat(paste("Number of rows:", nrow(full_data), "\n"))
+cat(paste("Number of columns:", ncol(full_data), "\n"))
+
+```
+
+
+```{r}  
+# Convert to the right data types
+# this could be stored in DB, csv etc. and loaded in the future
+quality_levels <- c("Low", "Low Plus", "Fair", "Fair Plus", "Average", "Average Plus", "Good", "Good Plus", "Very Good", "Very Good Plus", "Excellent"  )
+condition_levels <- c("Uninhabitable", "Extra Poor", "Very Poor", "Poor", "Fair", "Average", "Good")
+housing_data <- full_data %>%
+  mutate(
+    Sale_Date_Raw = as.Date(Sale_Date_Raw),
+    Quality = factor(Quality, levels = quality_levels),
+    Condition = factor(Condition, levels = condition_levels),
+    Neighborhood = factor(Neighborhood, ordered = F),
+    Street_Type = factor(Street_Type, ordered = F),
+    Utility_Water = factor(Utility_Water, ordered = F),
+    Utility_Electric = factor(Utility_Electric, ordered = F),
+    Utility_Sewer = factor(Utility_Sewer, ordered = F),
+    Improved_Vacant_Raw = as.logical(Improved_Vacant_Raw)
+  ) %>%
+  select(-Price_Per_SqFt)
+
+
+str(housing_data)
+
+```
+
+```{r}
+str(housing_data)
+```
+
+
+
+
+
+
+```{r}
+library(h2o)
+h2o.init(
+  nthreads = -1, # Use all available threads
+  max_mem_size = "24G", # Adjust based on your system's memory
+  # port = 54322 # Optional: specify a port if needed
+)
+```
+
+```{r}
+
+# Convert to H2O frame
+h2o_data <- as.h2o(housing_data)
+
+# Split data
+splits <- h2o.splitFrame(h2o_data, ratios = 0.8, seed = 123)
+train <- splits[[1]]
+test <- splits[[2]]
+
+target <- "Sale_Price_Raw"
+# Run AutoML
+automl <- h2o.automl(
+  x = setdiff(names(housing_data), target),
+  y = target,
+  training_frame = train,
+  validation_frame = test,
+  max_runtime_secs = 4 * 3600,
+  # max_models = 75,
+  nfolds = 5,
+  stopping_metric = "MAE",
+  # stopping_tolerance = 0.001,
+  sort_metric = "MAE",
+  seed = 123,
+  keep_cross_validation_predictions = F,
+  # preprocessing = list("standardize")
+)
+
+# View leaderboard
+automl@leaderboard
+
+# Get best model
+best_model <- automl@leader
+
+# Make predictions
+predictions <- h2o.predict(best_model, test)
+
+```
+
+```{r}
+automl@leaderboard
+```
+
+```{r}
+# also calculate the MAPE
+# Convert predictions and actual values to R vectors for MAPE calculation
+pred_values <- as.vector(predictions)
+actual_values <- as.vector(test$Sale_Price_Raw)
+# Calculate MAPE manually
+mape <- mean(abs((actual_values - pred_values) / actual_values)) * 100
+cat("MAPE:", round(mape, 2), "%\n")
+```
+
+```{r}
+# Assume aml is your H2O AutoML object
+model_ids <- as.vector(automl@leaderboard$model_id[1:30])
+
+for (model_id in model_ids) {
+  model <- h2o.getModel(model_id)
+  h2o.saveModel(object = model, path = "./saved-models/run1/", filename = model_id, force = TRUE)
+}
+```
+
+```{r}
+model_path <- h2o.saveModel(
+  object = automl@leader,
+  path = "./saved-models",     # Create a models directory
+  force = TRUE
+)
+print(paste("Model saved to:", model_path))
+```
+
+
+```{r}
+model_path <- "saved-models/StackedEnsemble_AllModels_5_AutoML_1_20250619_13803"
+# In a new R session, after h2o.init()
+saved_model <- h2o.loadModel(model_path)
+
+# Convert predictions and actual values to R vectors for MAPE calculation
+pred_values <- as.vector(predictions)
+actual_values <- as.vector(test$Sale_Price_Raw)
+
+# Calculate MAPE manually
+mape <- mean(abs((actual_values - pred_values) / actual_values)) * 100
+cat("MAPE:", round(mape, 2), "%\n")
+
+# Make predictions with loaded model
+predictions <- h2o.predict(saved_model, test)
+
+performance <- h2o.performance(saved_model, test)
+
+# Print all metrics
+print(performance)
+
+
+```
+
+
+```{r}
+h2o.shutdown()
+```
+
+
+
+
+
+
+
