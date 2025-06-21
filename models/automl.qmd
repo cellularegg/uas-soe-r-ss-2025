@@ -41,7 +41,7 @@ library(dplyr) # For glimpse() later
 ```
 
 ```{r}
-full_data <- read.csv("./data/final_data.csv")
+full_data <- read.csv("../data/final_data.csv")
 
 cat("--- Data loaded successfully ---\n")
 cat(paste("Number of rows:", nrow(full_data), "\n"))
@@ -74,13 +74,6 @@ str(housing_data)
 
 ```
 
-```{r}
-str(housing_data)
-```
-
-
-
-
 
 
 ```{r}
@@ -93,7 +86,6 @@ h2o.init(
 ```
 
 ```{r}
-
 # Convert to H2O frame
 h2o_data <- as.h2o(housing_data)
 
@@ -108,38 +100,24 @@ test <- splits[[2]]
 
 target <- "Sale_Price_Raw"
 # Run AutoML
-# automl <- h2o.automl(
-#   x = setdiff(names(housing_data), target),
-#   y = target,
-#   training_frame = train,
-#   validation_frame = test,
-#   max_runtime_secs = 4 * 3600,
-#   # max_models = 75,
-#   nfolds = 5,
-#   stopping_metric = "MAE",
-#   # stopping_tolerance = 0.001,
-#   sort_metric = "MAE",
-#   seed = 123,
-#   keep_cross_validation_predictions = F,
-#   # preprocessing = list("standardize")
-# )
-
-# View leaderboard
-automl@leaderboard
+automl <- h2o.automl(
+  x = setdiff(names(housing_data), target),
+  y = target,
+  training_frame = train,
+  max_models = 25,
+  nfolds = 10,
+  stopping_metric = "MAE",
+  sort_metric = "MAE",
+  seed = 123,
+  keep_cross_validation_predictions = FALSE,
+  # preprocessing = list("standardize")
+)
 
 # Get best model
 best_model <- automl@leader
 
 # Make predictions
 predictions <- h2o.predict(best_model, test)
-
-```
-
-```{r}
-automl@leaderboard
-```
-
-```{r}
 # also calculate the MAPE
 # Convert predictions and actual values to R vectors for MAPE calculation
 pred_values <- as.vector(predictions)
@@ -150,46 +128,40 @@ cat("MAPE:", round(mape, 2), "%\n")
 ```
 
 ```{r}
+automl@leaderboard
+```
+
+```{r}
 # Assume aml is your H2O AutoML object
-model_ids <- as.vector(automl@leaderboard$model_id[1:30])
+model_ids <- as.vector(automl@leaderboard$model_id[1:5])
 
 for (model_id in model_ids) {
   model <- h2o.getModel(model_id)
-  h2o.saveModel(object = model, path = "./saved-models/run1/", filename = model_id, force = TRUE)
+  h2o.saveModel(object = model, path = "./saved-models/", filename = model_id, force = TRUE)
 }
 ```
 
 ```{r}
-model_path <- h2o.saveModel(
-  object = automl@leader,
-  path = "./saved-models",     # Create a models directory
-  force = TRUE
-)
-print(paste("Model saved to:", model_path))
-```
 
+# --- Evaluate all models in saved-models folder ---
+model_dir <- "./saved-models/"
+model_files <- list.files(model_dir, full.names = TRUE)
 
-```{r}
-model_path <- "saved-models/StackedEnsemble_AllModels_5_AutoML_1_20250619_13803"
-# In a new R session, after h2o.init()
-saved_model <- h2o.loadModel(model_path)
+results <- data.frame(Model = character(), MAE = numeric(), RMSE = numeric(), MAPE = numeric(), stringsAsFactors = FALSE)
 
-# Make predictions with loaded model
-predictions <- h2o.predict(saved_model, test)
+for (model_path in model_files) {
+  model <- h2o.loadModel(model_path)
+  preds <- h2o.predict(model, test)
+  actuals <- as.vector(test$Sale_Price_Raw)
+  pred_vals <- as.vector(preds)
+  mae <- mean(abs(actuals - pred_vals))
+  rmse <- sqrt(mean((actuals - pred_vals)^2))
+  mape <- mean(abs((actuals - pred_vals) / actuals)) * 100
+  results <- rbind(results, data.frame(Model = basename(model_path), MAE = mae, RMSE = rmse, MAPE = mape))
+}
 
-performance <- h2o.performance(saved_model, test)
-
-
-# Convert predictions and actual values to R vectors for MAPE calculation
-pred_values <- as.vector(predictions)
-actual_values <- as.vector(test$Sale_Price_Raw)
-
-# Calculate MAPE manually
-mape <- mean(abs((actual_values - pred_values) / actual_values)) * 100
-cat("MAPE:", round(mape, 2), "%\n")
-
-# Print all metrics
-print(performance)
+cat("\nModel Performance Summary:\n")
+results
 
 
 ```

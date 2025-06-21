@@ -584,7 +584,32 @@ In addition, the study explored log-transformed models, where the sale price was
 
 To assess model robustness, 10-fold cross-validation was conducted. The cross-validated OLS model yielded an RMSE of 110,450 and an MAE of 81,468, slightly higher than the single-split results but confirming general model stability. Importantly, MAPE served as a valuable metric for differentiating models beyond RMSE and MAE. The final Lasso model, trained on the full dataset with bathrooms excluded, achieved the best performance overall, with an RMSE of 99,574, MAE of 77,565, and a MAPE of 41.12%, highlighting its accuracy and interpretability for predicting house prices in absolute dollar terms.
 
-### Next Model
+### Automl
+
+To further improve predictive accuracy and streamline model selection, H2O’s AutoML was applied to the cleaned housing data. The training and tuning of a wide range of machine learning models—including Gradient Boosting Machines (GBM), Random Forests, and Stacked Ensembles—were handled automatically, with model performance evaluated using k-fold cross-validation and early stopping based on Mean Absolute Error (MAE) as the primary metric.
+
+The data were split into training and test sets, converted to H2O frames, and AutoML was run with up to 25 models and 10-fold cross-validation. The top models were saved and evaluated on the test set, with MAE, RMSE, and MAPE reported for the five best performers. Among these, the lowest MAE and MAPE were achieved by the Stacked Ensemble model, which outperformed standard regression models and demonstrated the benefits of automated model selection and ensembling. An H2O AutoML Stacked Ensemble is a supervised machine learning algorithm that combines multiple prediction models (base learners) to create a more powerful ensemble model using a technique called stacking or Super Learning. The ensemble works by training a second-level "metalearner" algorithm that learns the optimal way to combine predictions from the base models, using cross-validation predictions as input data. The results are summarized in the table below.
+
+```{r tbl-model-summary-automl, echo=FALSE}
+
+automl_results <- data.frame(
+  Model = c(
+    "GBM_3",
+    "GBM_4",
+    "GBM_grid_1_model_4",
+    "StackedEnsemble_AllModels_1",
+    "StackedEnsemble_BestOfFamily_1"
+  ),
+  MAE = c(35005.42, 34461.81, 34948.68, 33781.49, 34480.63),
+  RMSE = c(54686.27, 54276.58, 54254.21, 52967.69, 54181.44),
+  MAPE = c(17.17092, 16.65622, 17.23847, 16.38329, 16.69897)
+)
+automl_results <- automl_results %>%
+  arrange(MAE)
+
+kable(automl_results, caption = "AutoML Model Performance Summary (MAE, RMSE in $, MAPE in %)")
+```
+
 
 ---
 
@@ -606,7 +631,15 @@ Explain key features and their effects in the chosen model.
 
 ## Shiny App
 
-Describe the layout and functionality of the deployed app.
+The deployed Shiny app provides an interactive interface for exploring and predicting residential property prices in Pierce County. The app is organized into two main tabs:
+
+- **Prediction Tab**: Users can input property characteristics such as square footage, location (latitude/longitude), number of bedrooms and bathrooms, stories, sale date, quality, condition, neighborhood, and year built. After entering values, clicking the "Predict" button displays a predicted sale price based on the selected features. The layout is user-friendly, with numeric and dropdown inputs grouped logically for ease of use.
+
+- **EDA Tab**: This tab offers exploratory data analysis tools, including:
+    - A data table preview of the first 100 rows of the dataset.
+    - Visualizations such as histograms of sale prices, scatter plots (e.g., sale price vs. square feet, bathrooms, year built), and boxplots by quality, condition, and neighborhood. These plots help users understand the distribution and relationships among key variables.
+
+The app leverages the DT package for interactive tables and ggplot2 for high-quality visualizations. It is designed to be accessible for both technical and non-technical users, supporting scenario analysis and data-driven decision making.
 
 ## Use Case Example
 
