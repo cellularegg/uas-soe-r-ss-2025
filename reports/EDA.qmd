@@ -618,7 +618,7 @@ This horizontal boxplot visualizes outliers across four key features: Stories_Ra
 
 ### Mapping Median Price per Sqft Across Pierce County
 
-```{r warning=FALSE}} 
+```{r warning=FALSE} 
 # 1. Load Pierce County boundary (Washington = '53')
 pierce_county <- counties(state = "53", cb = TRUE) %>%
   filter(NAME == "Pierce")
