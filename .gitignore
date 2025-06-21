@@ -52,4 +52,4 @@ rsconnect/
 *.pdf
 *.txt
 .DS_Store
-./models/saved-models/**
+./models/saved-models
