@@ -1,0 +1,222 @@
+---
+title: "Neural Network"
+format: html
+editor: visual
+---
+
+```{r}
+library(dplyr)
+library(readr)
+library(keras)
+library(caret)
+library(tensorflow)
+install_keras()  
+```
+
+```{r}  
+#full_data <- read_csv("../data/final_data.csv", show_col_types = FALSE)
+full_data <- read_csv("..data/final_data_incl_land_area.csv", show_col_types = FALSE)
+```
+
+```{r}
+library(dplyr)
+
+full_data <- full_data %>%
+  select(
+    Sale_Date_Raw        = Sale_Date_Raw,
+    Sale_Price_Raw       = Sale_Price_Raw,
+    Square_Feet_Raw      = Square_Feet_Raw,
+    Latitude_Raw         = Latitude_Raw,
+    Longitude_Raw        = Longitude_Raw,
+    Bedrooms_Raw         = Bedrooms_Raw,
+    Bathrooms_Raw        = Bathrooms_Raw,
+    Stories_Raw          = Stories_Raw,
+    Quality              = Quality,
+    Condition            = Condition,
+    Neighborhood         = Neighborhood,
+    #View_Quality         = View_Quality,
+    Street_Type          = Street_Type,
+    Utility_Water        = Utility_Water,
+    Utility_Electric     = Utility_Electric,
+    Utility_Sewer        = Utility_Sewer,
+    #Valid_Invalid_Raw    = Valid_Invalid_Raw,
+    Improved_Vacant_Raw  = Improved_Vacant_Raw, 
+    Net_Land_Square_Feet_Raw = Net_Land_Square_Feet_Raw,
+    Year_Built_Raw       = Year_Built_Raw
+  ) %>%
+  mutate(
+    Sale_Date_Raw       = as.Date(Sale_Date_Raw),
+    Sale_Price_Raw      = as.numeric(Sale_Price_Raw),
+    Square_Feet_Raw     = as.numeric(Square_Feet_Raw),
+    Latitude_Raw        = as.numeric(Latitude_Raw),
+    Longitude_Raw       = as.numeric(Longitude_Raw),
+    Bedrooms_Raw        = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw       = as.numeric(Bathrooms_Raw),
+    Stories_Raw         = as.numeric(Stories_Raw),
+    Quality             = as.factor(Quality),
+    Condition           = as.factor(Condition),
+    Neighborhood        = as.factor(Neighborhood),
+    #View_Quality        = as.factor(View_Quality),
+    Street_Type         = as.factor(Street_Type),
+    Utility_Water       = as.factor(Utility_Water),
+    Utility_Electric    = as.factor(Utility_Electric),
+    Utility_Sewer       = as.factor(Utility_Sewer),
+    #Valid_Invalid_Raw   = as.factor(Valid_Invalid_Raw),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Net_Land_Square_Feet_Raw = as.numeric(Net_Land_Square_Feet_Raw),
+    Sale_Year = as.numeric(format(Sale_Date_Raw, "%Y")),
+    Year_Built_Raw = as.numeric(Year_Built_Raw)
+  )
+
+
+```
+
+```{r}
+str(full_data)
+```
+
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
+
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
+```
+
+
+
+```{r}  
+library(keras)
+library(dplyr)
+library(caret)
+
+# Remove top and bottom 1% of prices
+#q_low <- quantile(full_data$Sale_Price_Raw, 0.01)
+#q_high <- quantile(full_data$Sale_Price_Raw, 0.99)
+
+#full_data <- full_data %>%
+#  filter(Sale_Price_Raw >= q_low, Sale_Price_Raw <= q_high)
+
+# --- 1. Specify predictors and target ---------------------------------------
+predictor_vars <- c(
+  "Square_Feet_Raw", #"Land_Net_Square_Feet_Raw", 
+  "Condition", "Bathrooms_Raw", "Bedrooms_Raw", #"View_Quality",
+  "Street_Type", "Utility_Water", "Utility_Electric", "Utility_Sewer", 
+  "Sale_Year", "Year_Built_Raw", "Neighborhood", "Improved_Vacant_Raw", "Quality", "Stories_Raw", "Net_Land_Square_Feet_Raw"
+)
+
+full_data$Sale_sqft_log = log(full_data$Sale_Price_Raw / full_data$Square_Feet_Raw)
+
+target_var <- "Sale_Price_Raw"
+#target_var <- "Sale_sqft_log"  # Use log price per square foot as target
+
+# --- 2. Subset data to predictors + target -----------------------------------
+model_data <- full_data %>%
+  select(all_of(c(predictor_vars, target_var)))
+
+# --- 3. Remove rows with missing values --------------------------------------
+model_data <- model_data %>% na.omit()
+
+# --- 4. Split into predictors and response -----------------------------------
+predictors <- model_data %>% select(-all_of(target_var))
+response   <- model_data[[target_var]]
+
+# --- 5. One-hot encode categorical variables ---------------------------------
+dummies <- dummyVars("~.", data = predictors)
+X <- predict(dummies, newdata = predictors)
+
+# --- 6. Scale numeric predictors ---------------------------------------------
+# Identify numeric columns
+numeric_cols <- sapply(as.data.frame(X), is.numeric)
+# But avoid scaling 0/1 dummy variables (only scale those with more than 2 unique values)
+numeric_cols <- numeric_cols & apply(X, 2, function(col) length(unique(col)) > 2)
+
+# Scale only those
+X_scaled <- X
+X_scaled[, numeric_cols] <- scale(X[, numeric_cols])
+
+# --- 7. Train/test split -----------------------------------------------------
+set.seed(123)
+train_idx <- sample(1:nrow(X_scaled), 0.8 * nrow(X_scaled))
+
+X_train <- X_scaled[train_idx, ]
+X_test  <- X_scaled[-train_idx, ]
+y_train <- response[train_idx]
+y_test  <- response[-train_idx]
+```
+
+
+```{r}  
+# Define the model with L2 regularization and dropout
+model <- keras_model_sequential() %>%
+  layer_dense(units = 128, activation = "relu", input_shape = ncol(X_train),
+              kernel_regularizer = regularizer_l2(l = 0.01)) %>%
+  layer_dropout(rate = 0.1) %>%
+  layer_dense(units = 32, activation = "relu",
+              kernel_regularizer = regularizer_l2(l = 0.01)) %>%
+  layer_dense(units = 1)  # Output layer for regression
+
+# Compile the model
+model %>% compile(
+  loss = "mean_squared_error",
+  optimizer = optimizer_adam(learning_rate = 0.002),
+  metrics = c("mean_absolute_error", "mean_absolute_percentage_error")
+)
+
+# Define early stopping
+early_stop <- callback_early_stopping(
+  monitor = "val_loss",
+  patience = 100,
+  restore_best_weights = TRUE
+)
+```
+
+```{r echo=FALSE}}
+# Train the model with early stopping
+history <- model %>% fit(
+  x = X_train,
+  y = y_train,
+  epochs = 10,
+  batch_size = 256,
+  validation_split = 0.2,
+  callbacks = list(early_stop)
+)
+```
+
+```{r echo=FALSE}}
+# Train the model with early stopping
+history <- model %>% fit(
+  x = X_train,
+  y = y_train,
+  epochs = 1000,
+  batch_size = 256,
+  validation_split = 0.2,
+  callbacks = list(early_stop)
+)
+```
+
+```{r}
+# Plot training history
+plot(history)
+```
+
+```{r}
+library(Metrics)  # calculate MAE, MAPE, RMSE and R^2 on Test Set
+predictions <- model %>% predict(X_test)
+mae <- Metrics::mae(y_test, predictions)
+mape <- Metrics::mape(y_test, predictions)
+rmse <- Metrics::rmse(y_test, predictions)
+
+# R^2 calculation
+sst <- sum((y_test - mean(y_test))^2)
+sse <- sum((y_test - predictions)^2)
+r2 <- 1 - (sse / sst)
+
+cat("MAE:", mae, "\n")
+cat("MAPE:", mape, "\n")
+cat("RMSE:", rmse, "\n")
+cat("R^2:", r2, "\n")
+```

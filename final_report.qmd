@@ -584,9 +584,27 @@ In addition, the study explored log-transformed models, where the sale price was
 
 To assess model robustness, 10-fold cross-validation was conducted. The cross-validated OLS model yielded an RMSE of 110,450 and an MAE of 81,468, slightly higher than the single-split results but confirming general model stability. Importantly, MAPE served as a valuable metric for differentiating models beyond RMSE and MAE. The final Lasso model, trained on the full dataset with bathrooms excluded, achieved the best performance overall, with an RMSE of 99,574, MAE of 77,565, and a MAPE of 41.12%, highlighting its accuracy and interpretability for predicting house prices in absolute dollar terms.
 
-### Next Model
+### Neural Network
 
----
+This model was implemented as a fully connected feedforward neural network using the Keras API. Its architecture includes two hidden layers with 128 and 32 units, respectively, using ReLU activation functions. To address potential overfitting, both layers incorporate L2 regularization with a penalty factor of 0.01, and dropout with a rate of 0.1 is applied after the first layer. The model's structure, learning rate, regularization strength, and batch size were all tuned iteratively during development based on validation performance.
+
+The network was trained using the Adam optimizer with a learning rate of 0.002 and mean squared error (MSE) as the loss function. In addition to MSE, mean absolute error (MAE) and mean absolute percentage error (MAPE) were also tracked as evaluation metrics. Input features were preprocessed by one-hot encoding categorical variables and standardizing numeric ones (excluding binary dummies). The dataset was split into training and test sets in an 80:20 ratio. Within the training set, a further 80:20 split was applied for validation purposes during training.
+
+To ensure efficient training and avoid overfitting, early stopping was used with a patience threshold of 100 epochs. While most of the learning occurred within the first 200 epochs, the training continued until epoch 850 before early stopping restored the best weights based on validation loss. The final evaluation on the test set yielded an RMSE of 59,626, an MAE of 41,002, a MAPE of 13.96%, and an R² of 0.891. These results demonstrate good predictive performance and confirm that the model generalizes well to unseen data.
+
+The following graphs illustrate the training and validation loss over epochs, showing convergence and stability in the model's learning process.
+
+```{r fig-nn-training-loss, fig.cap="Neural Network Training and Validation Loss", fig.align="center", echo=FALSE}
+# load jpg file
+library(jpeg)
+nn_loss <- readJPEG("plots/nn_training.jpg")
+ggplot() +
+  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
+  labs(title = "") +
+  theme_void()
+```
+
+### Next Model
 
 ## Performance Metrics
 
