@@ -6,7 +6,7 @@
 
 **Significantly Outperforms Baseline (County Assessments):**
 
-* The most compelling evidence is its performance relative to the existing `Tax_Summary_Taxable_Value`. We calculated an "assessment MAPE" of around **113.7%**. The fact that your model's 8.7% MAPE is drastically lower demonstrates its superior ability to reflect market realities compared to the assessments.
+* The most compelling evidence is its performance relative to the existing `Tax_Summary_Taxable_Value`. We calculated an "assessment MAPE" of around **113.7%**. The fact that our model's 8.7% MAPE is drastically lower demonstrates its superior ability to reflect market realities compared to the assessments.
 
 **Good Generalization and Robustness:**
 
