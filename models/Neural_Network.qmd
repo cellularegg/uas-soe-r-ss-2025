@@ -199,11 +199,6 @@ history <- model %>% fit(
 ```
 
 ```{r}
-# Plot training history
-plot(history)
-```
-
-```{r}
 library(Metrics)  # calculate MAE, MAPE, RMSE and R^2 on Test Set
 predictions <- model %>% predict(X_test)
 mae <- Metrics::mae(y_test, predictions)
@@ -219,4 +214,17 @@ cat("MAE:", mae, "\n")
 cat("MAPE:", mape, "\n")
 cat("RMSE:", rmse, "\n")
 cat("R^2:", r2, "\n")
+```
+
+```{r}  
+# export model
+save_model_hdf5(model, "../models/neural_network_model.keras")
+```
+
+```{r}
+# Load the model
+loaded_model <- load_model_hdf5("../models/neural_network_model.keras")
+
+# print some information about the loaded model
+summary(loaded_model)
 ```
