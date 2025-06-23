@@ -48,8 +48,10 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-
 *.pdf
 *.txt
 .DS_Store
 *.model
+rjobs
+Ensamble_files
+catboost_info

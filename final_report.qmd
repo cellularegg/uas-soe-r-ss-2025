@@ -33,7 +33,7 @@ library(dplyr)
 library(readr)
 library(tidyr)
 
-full_data <- read_csv("final_data.csv", show_col_types = FALSE)
+full_data <- read_csv("data/final_data.csv", show_col_types = FALSE)
 ```
 
 ```{r}
@@ -610,7 +610,58 @@ kable(automl_results, caption = "AutoML Model Performance Summary (MAE, RMSE in 
 ```
 
 
+### Neural Network
+
+This model was implemented as a fully connected feedforward neural network using the Keras API. Its architecture includes two hidden layers with 128 and 32 units, respectively, using ReLU activation functions. To address potential overfitting, both layers incorporate L2 regularization with a penalty factor of 0.01, and dropout with a rate of 0.1 is applied after the first layer. The model's structure, learning rate, regularization strength, and batch size were all tuned iteratively during development based on validation performance.
+
+The network was trained using the Adam optimizer with a learning rate of 0.002 and mean squared error (MSE) as the loss function. In addition to MSE, mean absolute error (MAE) and mean absolute percentage error (MAPE) were also tracked as evaluation metrics. Input features were preprocessed by one-hot encoding categorical variables and standardizing numeric ones (excluding binary dummies). The dataset was split into training and test sets in an 80:20 ratio. Within the training set, a further 80:20 split was applied for validation purposes during training.
+
+To ensure efficient training and avoid overfitting, early stopping was implemented with a patience threshold of 100 epochs. However, early stopping did not trigger, as the validation loss continued to decline slightly throughout training. A notable drop in loss occurred around epoch 600. Training was stopped at 1000 epochs, as further improvement in validation performance was no longer substantial.
+
+Final evaluation on the test set yielded the following metrics:
+
+- **RMSE:** 54,254  
+- **MAE:** 35,744  
+- **MAPE:** 12.3%  
+- **R²:** 0.909
+
+These results demonstrate strong predictive performance and indicate that the model generalizes well to unseen data.
+
+The following graphs illustrate the training and validation loss over epochs, showing overall convergence and a stable learning process.
+
+```{r fig-nn-training-loss, fig.cap="Neural Network Training and Validation Loss", fig.align="center", echo=FALSE}
+# load jpg file
+library(jpeg)
+nn_loss <- readJPEG("plots/nn_training.jpg")
+ggplot() +
+  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
+  labs(title = "") +
+  theme_void()
+```
+
+### CatBoost Regression (Gradient Boosted Trees)
+
+A CatBoost regressor was trained to predict residential sale prices using gradient boosting on decision trees. The final model was selected after five rounds of cross-validated grid search executed on the FH HPC cluster, optimizing parameters such as [depth](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#depth) = 10, [l2_leaf_reg](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#l2_leaf_reg) = 3, [learning_rate](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#learning_rate) = 0.03, [iterations](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#iterations) = 1200, and [border_count](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#border_count) = 32768.
+
+Model performance improved significantly through tuning, with the best model achieving a MAPE of 0.50%, MAE of $1,297, and RMSE of $3,851. The most influential predictors were `Square_Feet_Raw`, `Price_Per_SqFt`, and `Bathrooms`, as identified via CatBoost's feature importance scores.
+
+
+```{r}
+cb_summary <- data.frame(
+  Model = c("Initial CatBoost", "Tuned CatBoost"),
+  MAE = c(15444.2182, 1297.1749), 
+  RMSE = c(25254.5952, 3850.9752),
+  MAPE   = c(6.6132, 0.5008)
+)
+
+kable(cb_summary, caption = "Summary of CatBoost Model Performance Metrics (MAPE (%), RMSE ($), R²)")
+```
+
+Further details on the CatBoost model, including hyper parameter tuning and feature importance analysis, can be found in [Appendix B](#appendix-catboost).
+
 ---
+
+### Next Model
 
 ## Performance Metrics
 
@@ -665,3 +716,9 @@ You can fold all main processing and modeling code here using `echo: true`.
 
 \`\`\`{r} \# Example: show final model formula or preprocessing steps
 :::
+
+# Appendix B: Catboost regressor Code {#appendix-catboost}
+
+{{< include models/catboost_regressor/catboost_regressor.qmd >}}
+
+
