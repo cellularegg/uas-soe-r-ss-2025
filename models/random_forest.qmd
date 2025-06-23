@@ -1,0 +1,497 @@
+---
+title: "Random Forest"
+author: "Hakim Bajim"
+format: pdf
+editor: visual
+---
+
+# Packages
+```{r}
+if(!require(tidyr)) install.packages("tidyr"); library(tidyr);
+if(!require(ggplot2)) install.packages("ggplot2"); library(ggplot2);
+if(!require(FactoMineR)) install.packages("FactoMineR"); library(FactoMineR);
+if(!require(factoextra)) install.packages("factoextra"); library(factoextra);
+if(!require(cluster)) install.packages("cluster"); library(cluster);
+if(!require(dplyr)) install.packages("dplyr"); library(dplyr);
+if(!require(ggdendro)) install.packages("ggdendro"); library(ggdendro);
+if(!require(ranger)) install.packages("ranger"); library(ranger);
+if(!require(purrr)) install.packages("purrr"); library(purrr);
+if(!require(progress)) install.packages("progress"); library(progress);
+if(!require(xgboost)) install.packages("xgboost"); library(xgboost);
+if(!require(GGally)) install.packages("GGally"); library(GGally);
+```
+
+# Data loading
+```{r}
+data = read.csv("../data/final_data.csv")
+head(data)
+```
+
+```{r}
+# get columns names
+colnames(data)
+```
+```{r}
+# describe the data
+summary(data)
+```
+
+# Random Forest Model
+## Preperation
+```{r}
+set.seed(42)
+
+# convert char columns to factors
+data <- data %>%
+  mutate(across(where(is.character), as.factor))
+
+data <- data %>%
+  mutate(Sale_Price_log = log(Sale_Price_Raw + 1))
+
+n <- nrow(data)
+train_indices <- sample(seq_len(n), size = 0.8 * n)
+
+train_data <- data[train_indices, ]
+test_data  <- data[-train_indices, ]
+
+# create 10 folds
+n <- nrow(train_data)
+folds <- sample(rep(1:10, length.out = n))
+
+# hyperparams
+trees_to_test <- c(200, 300, 500, 700)
+```
+
+## Random Forest with Ranger
+```{r}
+cv_results <- data.frame(num.trees = integer(), fold = integer(), RMSE = double(), MAE = double(), MAPE = double())
+
+# perform CV with batching
+for (ntree in trees_to_test) {
+  cat("Evaluating num.trees =", ntree, "\n")
+  pb <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || Estimated time remaining: :eta]",
+                       total = 10,
+                       complete = "=",
+                       incomplete = "-", 
+                       current = ">",
+                       clear = FALSE,
+                       width = 100)
+  for (k in 1:10) {
+    pb$tick()
+    
+    train_fold <- train_data[folds != k, ]
+    val_fold   <- train_data[folds == k, ]
+    
+    rf_model <- ranger(
+      Sale_Price_log ~ ., 
+      data = train_fold,
+      num.trees = ntree,
+      importance = "impurity",
+      respect.unordered.factors = "order"
+    )
+    
+    # log price prediction and transformation into raw again
+    log_preds <- predict(rf_model, data = val_fold)$predictions
+    preds <- exp(log_preds) - 1 
+    
+    true <- exp(val_fold$Sale_Price_log) - 1
+    
+    rmse <- sqrt(mean((preds - true)^2))
+    mae  <- mean(abs(preds - true))
+    mape <- mean(abs((true - preds) / true)) * 100
+    
+    cv_results <- rbind(cv_results, data.frame(
+      num.trees = ntree,
+      fold = k,
+      RMSE = rmse,
+      MAE = mae,
+      MAPE = mape
+    ))
+  }
+}
+
+```
+
+## Visualize Ranger's Random Forest results
+```{r}
+cv_long <- cv_results %>%
+  pivot_longer(cols = c(RMSE, MAE, MAPE), names_to = "Metric", values_to = "Value")
+
+# Plot all metrics
+ggplot(cv_long, aes(x = factor(num.trees), y = Value)) +
+  geom_boxplot(aes(fill = Metric), alpha = 0.7, outlier.shape = NA) +
+  facet_wrap(~ Metric, scales = "free_y") +
+  labs(
+    title = "Manual 10-Fold CV: RMSE, MAE, and MAPE by Number of Trees",
+    x = "Number of Trees",
+    y = "Metric Value"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+summary(comb_data$Sale_Price_Raw)
+```
+
+## XG Boosting
+```{r}
+
+# reduce dataset to 20% for fast param search
+set.seed(42)
+train_subset <- train_data %>%
+  sample_frac(0.05) %>%
+  select(where(function(col) !(is.factor(col) && nlevels(col) > 100)))
+
+# folds
+n <- nrow(train_subset)
+folds <- sample(rep(1:10, length.out = n))
+
+params_grid <- expand.grid(
+  eta = seq(0.0, 1.1, 0.25),# c(0.01, 0.05, 0.1, 0.2),
+  max_depth = c(4, 6, 8),
+  subsample = seq(0.0, 1.1, 0.25),
+  colsample_bytree = seq(0.0, 1.1, 0.25),
+  gamma = c(0, 0.5, 1, 5),
+  num.trees = seq(100, 1000, 200)
+)
+```
+
+```{r}
+colnames(train_subset)
+seq(0.0, 1.1, 0.1)
+seq(0.0, 1.1, 0.25)
+```
+
+```{r}
+cv_results <- data.frame(
+  eta = double(),
+  max_depth = integer(),
+  subsample = double(),
+  colsample_bytree = double(),
+  gamma = double(),
+  num.trees = integer(),
+  fold = integer(),
+  RMSE = double(),
+  MAE = double(),
+  MAPE = double()
+)
+
+# loop over param combinations
+for (i in seq_len(nrow(params_grid))) {
+  params <- params_grid[i, ]
+  cat(sprintf("\nEvaluating combination %d of %d\n", i, nrow(params_grid)))
+  
+  for (k in 1:10) {
+    cat("  Fold", k, "\n")
+    
+    train_fold <- train_subset[folds != k, ]
+    val_fold   <- train_subset[folds == k, ]
+
+    train_matrix <- model.matrix(Sale_Price_log ~ . - 1, data = train_fold)
+    val_matrix   <- model.matrix(Sale_Price_log ~ . - 1, data = val_fold)
+
+    y_train <- train_fold$Sale_Price_log
+    y_val   <- val_fold$Sale_Price_log
+
+    dtrain <- xgb.DMatrix(data = train_matrix, label = y_train)
+    dval   <- xgb.DMatrix(data = val_matrix)
+
+    xgb_model <- xgboost(
+      data = dtrain,
+      nrounds = params$num.trees,
+      eta = params$eta,
+      max_depth = params$max_depth,
+      subsample = params$subsample,
+      colsample_bytree = params$colsample_bytree,
+      early_stopping_rounds = 20,
+      gamma = params$gamma,
+      objective = "reg:squarederror",
+      verbose = 0
+    )
+
+    log_preds <- predict(xgb_model, newdata = dval)
+    preds <- exp(log_preds) - 1
+    true  <- exp(y_val) - 1
+
+    rmse <- sqrt(mean((preds - true)^2))
+    mae  <- mean(abs(preds - true))
+    mape <- mean(abs((true - preds) / true)) * 100
+
+    cv_results <- rbind(cv_results, data.frame(
+      eta = params$eta,
+      max_depth = params$max_depth,
+      subsample = params$subsample,
+      colsample_bytree = params$colsample_bytree,
+      gamma = params$gamma,
+      num.trees = params$num.trees,
+      fold = k,
+      RMSE = rmse,
+      MAE = mae,
+      MAPE = mape
+    ))
+
+    rm(train_matrix, val_matrix, dtrain, dval, train_fold, val_fold)
+    gc()
+  }
+}
+
+
+```
+
+## Visualize XG Boosting results
+```{r}
+cv_results_ <- cv_results %>%
+  mutate(
+    param_combo = paste0(
+      "eta=", eta,
+      ",depth=", max_depth,
+      ",subsample=", subsample,
+      ",colsample=", colsample_bytree,
+      ",gamma=", gamma
+    )
+  )
+
+best_configs <- cv_results_ %>%
+  group_by(eta, max_depth, subsample, colsample_bytree, gamma) %>%
+  summarise(
+    RMSE = mean(RMSE),
+    MAE = mean(MAE),
+    MAPE = mean(MAPE),
+    .groups = "drop"
+  )
+
+GGally::ggparcoord(
+  data = best_configs,
+  columns = 6:8,  # RMSE, MAE, MAPE
+  groupColumn = 1,  # e.g. eta
+  scale = "globalminmax",
+  showPoints = TRUE,
+  title = "Parallel Coordinates of Metric Scores by Hyperparams"
+) +
+  theme_minimal()
+
+```
+
+```{r}
+cv_results_ <- cv_results %>%
+  mutate(
+    param_combo = paste0(
+      "eta=", eta,
+      ",depth=", max_depth,
+      ",subsample=", subsample,
+      ",colsample=", colsample_bytree,
+      ",gamma=", gamma
+    )
+  )
+
+best_configs <- cv_results_ %>%
+  group_by(param_combo, eta, max_depth, subsample, colsample_bytree, gamma, num.trees) %>%
+  summarise(
+    mean_RMSE = mean(RMSE),
+    mean_MAE = mean(MAE),
+    mean_MAPE = mean(MAPE),
+    .groups = "drop"
+  ) %>%
+  arrange(mean_RMSE)
+
+cat("Top 3 configurations based on RMSE:\n")
+print(head(best_configs, 3))
+
+
+```
+
+```{r}
+best_rmse_params <- cv_results %>%
+  group_by(eta, num.trees) %>%
+  summarise(mean_rmse = mean(RMSE), .groups = "drop") %>%
+  arrange(mean_rmse) %>%
+  dplyr::slice(1)
+
+print(best_rmse_params)
+
+# Best by MAE
+best_mae <- cv_results %>%
+  group_by(eta, num.trees) %>%
+  summarise(mean_mae = mean(MAE), .groups = "drop") %>%
+  arrange(mean_mae) %>%
+  dplyr::slice(1)
+
+print("Best configuration by MAE:")
+print(best_mae)
+
+# Best by MAPE
+best_mape <- cv_results %>%
+  group_by(eta, num.trees) %>%
+  summarise(mean_mape = mean(MAPE), .groups = "drop") %>%
+  arrange(mean_mape) %>%
+  dplyr::slice(1)
+
+print("Best configuration by MAPE:")
+print(best_mape)
+
+```
+
+# Train XG Boosting & Ranger Random Forest
+```{r}
+library(xgboost)
+library(Matrix)
+library(dplyr)
+library(progress)
+
+train_features <- train_data %>% select(-Sale_Price_Raw, -Price_Per_SqFt, -Sale_Price_log)
+test_features  <- test_data %>% select(-Sale_Price_Raw, -Price_Per_SqFt, -Sale_Price_log)
+
+combined_matrix_data <- rbind(train_features, test_features)
+sparse_matrix <- sparse.model.matrix(~ . -1, data = combined_matrix_data)
+
+train_matrix <- sparse_matrix[1:nrow(train_data), ]
+test_matrix  <- sparse_matrix[(nrow(train_data) + 1):nrow(combined_matrix_data), ]
+
+train_label <- train_data$Sale_Price_log
+test_label  <- test_data$Sale_Price_log
+
+dtrain <- xgb.DMatrix(data = train_matrix, label = train_label)
+dtest  <- xgb.DMatrix(data = test_matrix, label = test_label)
+
+best_params <- list(
+  eta = 0.25,
+  max_depth = 8,
+  subsample = 1,
+  colsample_bytree = 1,
+  gamma = 0,
+  alpha = 0.5,
+  lambda = 1.0,
+  objective = "reg:squarederror"
+)
+```
+
+```{r}
+colnames(train_features)
+```
+
+```{r}
+xgb_model <- xgb.train(
+  params = best_params,
+  data = dtrain,
+  nrounds = 700, 
+  # early_stopping_rounds = 50,
+  watchlist = list(train = dtrain),
+  verbose = 1
+)
+```
+
+# Test the final model
+```{r}
+log_preds <- predict(xgb_model, dtest)
+preds <- exp(log_preds) - 1
+true  <- exp(test_label) - 1
+
+rmse <- sqrt(mean((preds - true)^2))
+mae  <- mean(abs(preds - true))
+mape <- mean(abs((true - preds) / true)) * 100
+
+cat(sprintf("Final XGBoost Performance on Test Set:\nRMSE: %.2f\nMAE: %.2f\nMAPE: %.2f%%\n",
+            rmse, mae, mape))
+```
+# Plot the prediction vs actual
+```{r}
+plot(true, preds, pch = 16, col = rgb(0,0,0,0.3),
+     main = "Predicted vs Actual", xlab = "True Price", ylab = "Predicted Price")
+abline(0, 1, col = "red")
+```
+
+# Plot residuals vs predicted, distribution of rmse, and percentage error by segment
+```{r}
+residuals <- true - preds
+df_resid <- data.frame(true, preds, residuals, error_pct = residuals / true * 100)
+
+# Residual vs Prediction plot
+library(ggplot2)
+ggplot(df_resid, aes(x = preds, y = residuals)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs Predicted", x = "Predicted", y = "Residual")
+
+# Residual distribution
+ggplot(df_resid, aes(x = residuals)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
+  labs(title = "Distribution of Residuals", x = "Residual", y = "Count")
+
+# By segment – e.g., by number of bedrooms
+ggplot(df_resid %>% mutate(bin = cut(preds, breaks = 5)),
+       aes(x = bin, y = error_pct)) +
+  geom_boxplot() +
+  labs(title = "Percentage Error by Prediction Bin", x = "Predicted Price Bin", y = "% Error")
+
+```
+# RMSE by bedroom count
+```{r}
+df_resid$Bedrooms_Raw <- test_data$Bedrooms_Raw
+
+library(dplyr)
+df_segment <- df_resid %>%
+  group_by(Bedrooms_Raw) %>%
+  summarise(mean_error = mean(residuals),
+            rmse = sqrt(mean(residuals^2)),
+            mae = mean(abs(residuals)),
+            n = n()) %>%
+  filter(n >= 50)
+
+ggplot(df_segment, aes(x = factor(Bedrooms_Raw), y = rmse)) +
+  geom_col(fill = "coral") +
+  labs(title = "RMSE by Bedroom Count", x = "# Bedrooms", y = "RMSE")
+
+```
+
+# Bootstrap for Confidence Intervals
+```{r}
+nboot <- 50
+pred_mat <- replicate(nboot, {
+  idx <- sample(seq_len(nrow(train_matrix)), replace = TRUE)
+  dboot <- xgb.DMatrix(data = train_matrix[idx, ], label = train_label[idx])
+  model_boot <- xgboost(params = best_params, data = dboot, nrounds = 300, verbose = 1)
+  predict(model_boot, dtest)
+})
+
+# For each test sample, get 2.5% and 97.5% quantile
+ci_lower <- exp(apply(pred_mat, 1, quantile, probs = 0.025)) - 1
+ci_upper <- exp(apply(pred_mat, 1, quantile, probs = 0.975)) - 1
+```
+
+```{r}
+df_test <- data.frame(
+  true = true,
+  pred = preds,
+  lower = ci_lower,
+  upper = ci_upper
+)
+
+ggplot(df_test, aes(x = true, y = pred)) +
+  geom_ribbon(aes(x = true, ymin = lower, ymax = upper), fill = "skyblue", alpha = 0.4) +
+  geom_point(alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(
+    title = "Predicted vs True with 95% Bootstrap Confidence Intervals",
+    x = "True Price",
+    y = "Predicted Price (median)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+mean_log_preds <- rowMeans(pred_mat)
+mean_preds     <- exp(mean_log_preds) - 1
+true_vals      <- exp(test_label) - 1
+
+residuals <- mean_preds - true_vals
+MAE   <- mean(abs(residuals))
+RMSE  <- sqrt(mean(residuals^2))
+MAPE  <- mean(abs(residuals / true_vals)) * 100
+
+cat(sprintf("Bootstrap Test Set Metrics:\nMAE: %.2f\nRMSE: %.2f\nMAPE: %.2f%%\n", MAE, RMSE, MAPE))
+```
+
+
+
