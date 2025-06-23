@@ -590,9 +590,18 @@ This model was implemented as a fully connected feedforward neural network using
 
 The network was trained using the Adam optimizer with a learning rate of 0.002 and mean squared error (MSE) as the loss function. In addition to MSE, mean absolute error (MAE) and mean absolute percentage error (MAPE) were also tracked as evaluation metrics. Input features were preprocessed by one-hot encoding categorical variables and standardizing numeric ones (excluding binary dummies). The dataset was split into training and test sets in an 80:20 ratio. Within the training set, a further 80:20 split was applied for validation purposes during training.
 
-To ensure efficient training and avoid overfitting, early stopping was used with a patience threshold of 100 epochs. While most of the learning occurred within the first 200 epochs, the training continued until epoch 850 before early stopping restored the best weights based on validation loss. The final evaluation on the test set yielded an RMSE of 59,626, an MAE of 41,002, a MAPE of 13.96%, and an R² of 0.891. These results demonstrate good predictive performance and confirm that the model generalizes well to unseen data.
+To ensure efficient training and avoid overfitting, early stopping was implemented with a patience threshold of 100 epochs. However, early stopping did not trigger, as the validation loss continued to decline slightly throughout training. A notable drop in loss occurred around epoch 600. Training was stopped at 1000 epochs, as further improvement in validation performance was no longer substantial.
 
-The following graphs illustrate the training and validation loss over epochs, showing convergence and stability in the model's learning process.
+Final evaluation on the test set yielded the following metrics:
+
+- **RMSE:** 54,254  
+- **MAE:** 35,744  
+- **MAPE:** 12.3%  
+- **R²:** 0.909
+
+These results demonstrate strong predictive performance and indicate that the model generalizes well to unseen data.
+
+The following graphs illustrate the training and validation loss over epochs, showing overall convergence and a stable learning process.
 
 ```{r fig-nn-training-loss, fig.cap="Neural Network Training and Validation Loss", fig.align="center", echo=FALSE}
 # load jpg file
