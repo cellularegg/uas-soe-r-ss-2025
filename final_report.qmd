@@ -33,7 +33,7 @@ library(dplyr)
 library(readr)
 library(tidyr)
 
-full_data <- read_csv("final_data.csv", show_col_types = FALSE)
+full_data <- read_csv("data/final_data.csv", show_col_types = FALSE)
 ```
 
 ```{r}
@@ -613,6 +613,28 @@ ggplot() +
   theme_void()
 ```
 
+### CatBoost Regression (Gradient Boosted Trees)
+
+A CatBoost regressor was trained to predict residential sale prices using gradient boosting on decision trees. The final model was selected after five rounds of cross-validated grid search executed on the FH HPC cluster, optimizing parameters such as [depth](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#depth) = 10, [l2_leaf_reg](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#l2_leaf_reg) = 3, [learning_rate](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#learning_rate) = 0.03, [iterations](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#iterations) = 1200, and [border_count](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#border_count) = 32768.
+
+Model performance improved significantly through tuning, with the best model achieving a MAPE of 0.50%, MAE of $1,297, and RMSE of $3,851. The most influential predictors were `Square_Feet_Raw`, `Price_Per_SqFt`, and `Bathrooms`, as identified via CatBoost's feature importance scores.
+
+
+```{r}
+cb_summary <- data.frame(
+  Model = c("Initial CatBoost", "Tuned CatBoost"),
+  MAE = c(15444.2182, 1297.1749), 
+  RMSE = c(25254.5952, 3850.9752),
+  MAPE   = c(6.6132, 0.5008)
+)
+
+kable(cb_summary, caption = "Summary of CatBoost Model Performance Metrics (MAPE (%), RMSE ($), R²)")
+```
+
+Further details on the CatBoost model, including hyper parameter tuning and feature importance analysis, can be found in [Appendix B](#appendix-catboost).
+
+---
+
 ### Next Model
 
 ## Performance Metrics
@@ -660,3 +682,9 @@ You can fold all main processing and modeling code here using `echo: true`.
 
 \`\`\`{r} \# Example: show final model formula or preprocessing steps
 :::
+
+# Appendix B: Catboost regressor Code {#appendix-catboost}
+
+{{< include models/catboost_regressor/catboost_regressor.qmd >}}
+
+
