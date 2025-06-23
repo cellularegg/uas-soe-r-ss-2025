@@ -340,6 +340,7 @@ library(Matrix)
 library(dplyr)
 library(progress)
 
+
 train_features <- train_data %>% select(-Sale_Price_Raw, -Price_Per_SqFt, -Sale_Price_log)
 test_features  <- test_data %>% select(-Sale_Price_Raw, -Price_Per_SqFt, -Sale_Price_log)
 
@@ -368,6 +369,10 @@ best_params <- list(
 ```
 
 ```{r}
+xgb_model <- xgb.train(
+  params = best_params,
+  data = dtrain,
+  nrounds = 300, 
 colnames(train_features)
 ```
 
