@@ -41,7 +41,7 @@ library(dplyr) # For glimpse() later
 ```
 
 ```{r}
-full_data <- read.csv("../data/final_data.csv")
+full_data <- read.csv("../data/final_data_incl_land_area.csv")
 
 cat("--- Data loaded successfully ---\n")
 cat(paste("Number of rows:", nrow(full_data), "\n"))
@@ -137,14 +137,14 @@ model_ids <- as.vector(automl@leaderboard$model_id[1:5])
 
 for (model_id in model_ids) {
   model <- h2o.getModel(model_id)
-  h2o.saveModel(object = model, path = "./saved-models/", filename = model_id, force = TRUE)
+  h2o.saveModel(object = model, path = "./saved-models/final-run/", filename = model_id, force = TRUE)
 }
 ```
 
 ```{r}
 
 # --- Evaluate all models in saved-models folder ---
-model_dir <- "./saved-models/"
+model_dir <- "./saved-models/final-run/"
 model_files <- list.files(model_dir, full.names = TRUE)
 
 results <- data.frame(Model = character(), MAE = numeric(), RMSE = numeric(), MAPE = numeric(), stringsAsFactors = FALSE)

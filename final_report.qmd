@@ -591,18 +591,17 @@ To further improve predictive accuracy and streamline model selection, H2O’s A
 The data were split into training and test sets, converted to H2O frames, and AutoML was run with up to 25 models and 10-fold cross-validation. The top models were saved and evaluated on the test set, with MAE, RMSE, and MAPE reported for the five best performers. Among these, the lowest MAE and MAPE were achieved by the Stacked Ensemble model, which outperformed standard regression models and demonstrated the benefits of automated model selection and ensembling. An H2O AutoML Stacked Ensemble is a supervised machine learning algorithm that combines multiple prediction models (base learners) to create a more powerful ensemble model using a technique called stacking or Super Learning. The ensemble works by training a second-level "metalearner" algorithm that learns the optimal way to combine predictions from the base models, using cross-validation predictions as input data. The results are summarized in the table below.
 
 ```{r tbl-model-summary-automl, echo=FALSE}
-
 automl_results <- data.frame(
   Model = c(
-    "GBM_3",
+    "GBM_1",
     "GBM_4",
-    "GBM_grid_1_model_4",
+    "GBM_grid_1",
     "StackedEnsemble_AllModels_1",
     "StackedEnsemble_BestOfFamily_1"
   ),
-  MAE = c(35005.42, 34461.81, 34948.68, 33781.49, 34480.63),
-  RMSE = c(54686.27, 54276.58, 54254.21, 52967.69, 54181.44),
-  MAPE = c(17.17092, 16.65622, 17.23847, 16.38329, 16.69897)
+  MAE = c(31351.49, 31222.94, 31328.33, 30429.87, 31245.37),
+  RMSE = c(48952.20, 49101.61, 48546.54, 47413.33, 48772.60),
+  MAPE = c(10.67162, 10.53705, 10.73902, 10.25683, 10.46562)
 )
 automl_results <- automl_results %>%
   arrange(MAE)
