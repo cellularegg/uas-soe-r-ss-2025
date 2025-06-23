@@ -1,7 +1,7 @@
 ---
 title: "Pierce County Property Analysis: Data Loading"
-subtitle: "Step 1: Acquiring and Loading Raw Data"
-author: "Your Group Name"
+subtitle: "EDA"
+author: "B1_Pierce-House-Price"
 date: "today"
 format: 
   html:
@@ -19,389 +19,99 @@ execute:
   error: true      # Display errors if they occur
 ---
 
-# 1. Introduction
-
-This document outlines the first step in our analysis of Pierce County property data: loading all raw data files into a DuckDB in-memory database. Each text file will be loaded into its own table with column names derived from the provided metadata (PDFs). All columns will initially be loaded as `VARCHAR` (text) to ensure robust loading; type conversions will occur during the subsequent cleaning phase.
-
-# 2. Setup and Configuration
-
-## 2.1. Load Libraries and Functions
-
-First, we load necessary R packages and our custom data loading function.
+# Data Import
 
 ```{r}
-#| label: setup-load-libs-funcs
+library(dplyr)
+library(readr)
 
-# Ensure these packages are installed: install.packages(c("DBI", "duckdb", "knitr", "dplyr"))
-library(DBI)
-library(duckdb)
-library(knitr) # For kable()
-library(dplyr) # For glimpse() later
-
-# Source our custom data loading function
-# The path is relative to the Quarto document's location (reports/)
-source("../R/00_load_data_functions.R")
-
+full_data <- read_csv("../final_data.csv", show_col_types = FALSE)
 ```
-
-## 2.2. Define File Paths and Column Names
-
-Here, we define the locations of our raw data files and the column names for each table. IMPORTANT: You MUST verify and complete the col_names_lists with the correct column names in the correct order for EACH of your files based on your metadata PDFs.
-
-```{r}
-#| label: setup-file-configs
-
-# Base path to the directory where the raw .txt files are stored
-# This path is relative to the project root, assuming the .Rproj is in the root.
-# If running the .qmd directly, ensure this path correctly points to your data/raw folder.
-# For Quarto rendering, it's often best to assume the project root is the working directory.
-# Let's construct paths assuming the Quarto doc is in 'reports/' and data is in 'data/raw/'
-# relative to a common project root.
-project_root_relative_data_path <- "../data/raw/" # Path from 'reports/' dir to 'data/raw/'
-
-file_paths_list <- list(
-  sale = paste0(project_root_relative_data_path, "sale.txt"),
-  appraisal_account = paste0(project_root_relative_data_path, "appraisal_account.txt"),
-  improvement = paste0(project_root_relative_data_path, "improvement.txt"),
-  improvement_detail = paste0(project_root_relative_data_path, "improvement_detail.txt"),
-  improvement_builtas = paste0(project_root_relative_data_path, "improvement_builtas.txt"),
-  land_attribute = paste0(project_root_relative_data_path, "land_attribute.txt"),
-  seg_merge = paste0(project_root_relative_data_path, "seg_merge.txt"),
-  tax_account = paste0(project_root_relative_data_path, "tax_account.txt"),
-  tax_description = paste0(project_root_relative_data_path, "tax_description.txt")
-)
-
-# --- COLUMN NAMES ---
-# !!! ACTION REQUIRED: Populate these lists accurately for EACH file !!!
-# The order of names MUST match the order of columns in your .txt files.
-# These are placeholders. Refer to your PDF metadata.
-col_names_lists <- list(
-  sale = c(
-    "ETN", "Parcel_Count", "Parcel_Number", "Sale_Date_Raw", "Sale_Price_Raw", 
-    "Deed_Type", "Grantor", "Grantee", "Valid_Invalid_Raw", 
-    "Confirmed_Uncomfirmed_Raw", # Note: "Uncomfirmed" as per PDF
-    "Exclude_Reason", "Improved_Vacant_Raw", "Appraisal_Account_Type"
-  ), 
-  
-  appraisal_account = c(
-    "Parcel_Number", "Appraisal_Account_Type", "Business_Name", "Value_Area_ID", 
-    "Land_Economic_Area", "Buildings", "Group_Account_Number", 
-    "Land_Gross_Acres_Raw", "Land_Net_Acres_Raw", "Land_Gross_Square_Feet_Raw", 
-    "Land_Net_Square_Feet_Raw", "Land_Gross_Front_Feet_Raw", "Land_Width_Raw", 
-    "Land_Depth_Raw", "Submerged_Area_Square_Feet_Raw", "Appraisal_Date_Raw", 
-    "Waterfront_Type", "View_Quality", "Utility_Electric", "Utility_Sewer", 
-    "Utility_Water", "Street_Type", "Latitude_Raw", "Longitude_Raw"
-  ), 
-  
-  improvement = c(
-    "Parcel_Number", "Building_ID", "Property_Type", "Neighborhood", 
-    "Neighborhood_Extension", "Square_Feet_Raw", "Net_Square_Feet_Raw", 
-    "Percent_Complete_Raw", "Condition", "Quality", "Primary_Occupancy_Code_Raw", 
-    "Primary_Occupancy_Description", "Mobile_Home_Serial_Number", 
-    "Mobile_Home_Total_Length_Raw", "Mobile_Home_Make", 
-    "Attic_Finished_Square_Feet_Raw", "Basement_Square_Feet_Raw", 
-    "Basement_Finished_Square_Feet_Raw", "Carport_Square_Feet_Raw", 
-    "Balcony_Square_Feet_Raw", "Porch_Square_Feet_Raw", 
-    "Attached_Garage_Square_Feet_Raw", "Detached_Garage_Square_Feet_Raw", 
-    "Fireplaces_Raw", "Basement_Garage_Door_Raw"
-  ),
-                 
-  improvement_detail = c(
-    "Parcel_Number", "Building_ID", "Detail_Type", "Detail_Description", "Units_Raw"
-  ),
-                        
-  improvement_builtas = c(
-    "Parcel_Number", "Building_ID", "Built_As_Number_Raw", "Built_As_ID_Raw", 
-    "Built_As_Description", "Built_As_Square_Feet_Raw", "HVAC_Code_Raw", 
-    "HVAC_Description", "Exterior", "Interior", "Stories_Raw", "Story_Height_Raw", 
-    "Sprinkler_Square_Feet_Raw", "Roof_Cover", "Bedrooms_Raw", "Bathrooms_Raw", 
-    "Units_Count_Raw", "Class_Code", "Class_Description", "Year_Built_Raw", 
-    "Year_Remodeled_Raw", "Adjusted_Year_Built_Raw", "Physical_Age_Raw", 
-    "Built_As_Length_Raw", "Built_As_Width_Raw", "Mobile_Home_Model"
-  ),
-                         
-  land_attribute = c(
-    "Parcel_Number", "Attribute_Key", "Attribute_Description"
-  ), 
-                    
-  seg_merge = c(
-    "Seg_Merge_Number", "Parent_Child_Indicator", "Parcel_Number", 
-    "Continued_Indicator", "Completed_Date_Raw", "Tax_Year_Raw"
-  ), 
-               
-  tax_account = c(
-    "Parcel_Number", "Account_Type", "Property_Type", "Site_Address", 
-    "Use_Code", "Use_Description", "Tax_Year_Prior_Raw", 
-    "Tax_Code_Area_Prior_Year", "Exemption_Type_Prior_Year", 
-    "Current_Use_Code_Prior_Year", "Land_Value_Prior_Year_Raw", 
-    "Improvement_Value_Prior_Year_Raw", "Total_Market_Value_Prior_Year_Raw", 
-    "Taxable_Value_Prior_Year_Raw", "Tax_Year_Current_Raw", 
-    "Tax_Code_Area_Current_Year", "Exemption_Type_Current_Year", 
-    "Current_Use_Code_Current_Year", "Land_Value_Current_Year_Raw", 
-    "Improvement_Value_Current_Year_Raw", "Total_Market_Value_Current_Year_Raw", 
-    "Taxable_Value_Current_Year_Raw", "Range", "Township", "Section", 
-    "Quarter_Section", "Subdivision_Name", "Located_On_Parcel"
-  ), 
-                 
-  tax_description = c(
-    "Parcel_Number", "Line_Number_Raw", "Tax_Description_Line"
-  )
-)
-
-# Verify all files have column name definitions (basic check)
-if (!all(names(file_paths_list) %in% names(col_names_lists))) {
-  stop("Mismatch between file_paths_list and col_names_lists. Ensure every file has a corresponding column name definition.")
-}
-if (!all(names(col_names_lists) %in% names(file_paths_list))) {
-  stop("Mismatch between col_names_lists and file_paths_list. Ensure every column name definition has a corresponding file.")
-}
-```
-
-## 2.3. Initialize DuckDB Connection
-
-We'll use an in-memory DuckDB database for this session.
-
-```{r}
-#| label: setup-duckdb-connection
-
-con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
-cat("DuckDB in-memory connection established.\n")
-```
-
-# 3. Load Raw Data into DuckDB
-
-Now, we iterate through our configured files and load each one into a separate table in DuckDB using our custom function.
-
-```{r}
-#| label: load-data-to-duckdb
-#| results: 'asis' # Allows cat() HTML output to render directly
-
-cat("### Starting Data Loading Process:\n\n")
-
-loaded_successfully <- c() # To track which tables loaded
-
-for (table_key in names(file_paths_list)) {
-  file_path <- file_paths_list[[table_key]]
-  col_names <- col_names_lists[[table_key]]
-  target_table_name <- paste0(table_key, "_raw_duckdb") # e.g., "sale_raw_duckdb"
-  
-  cat(paste0("Attempting to load: ", basename(file_path), " into table `", target_table_name, "`...\n"))
-  
-  if (is.null(col_names) || length(col_names) == 0) {
-      cat(paste0("<p style='color:red;'><strong>Error:</strong> Column names for '", table_key, "' are not defined or empty. Skipping.</p>\n\n"))
-      loaded_successfully[target_table_name] <- FALSE
-      next
-  }
-  
-  success <- load_pipe_delimited_file_to_duckdb(
-    con = con,
-    file_path = file_path,
-    col_names_vector = col_names,
-    target_table_name = target_table_name
-  )
-  loaded_successfully[target_table_name] <- success
-}
-
-cat("\n### Data Loading Process Complete.\n")
-
-# Summary of loading
-cat("\n#### Loading Summary:\n")
-for(tbl_name in names(loaded_successfully)){
-    status_msg <- if(loaded_successfully[tbl_name]) "Successfully loaded" else "Failed to load or file not found"
-    cat(paste0("- `", tbl_name, "`: ", status_msg, "\n"))
-}
-```
-
-# 4. Preliminary Data Inspection
-
-Let's list the tables in our DuckDB database and look at the first few rows and structure of each loaded table to verify the loading process.
-
-```{r}
-#| label: inspect-loaded-tables
-#| results: 'asis'
-
-cat("\n### Tables in DuckDB:\n")
-loaded_tables_in_db <- DBI::dbListTables(con)
-if (length(loaded_tables_in_db) > 0) {
-  kable(loaded_tables_in_db, col.names = "Table Name", caption = "Tables present in DuckDB") %>% print()
-} else {
-  cat("No tables found in DuckDB. Please check loading logs.\n")
-}
-
-
-cat("\n\n### Preview of Loaded Tables (First 3 Rows and Structure):\n")
-for (table_name_raw in loaded_tables_in_db) {
-  # Only preview tables we attempted to load based on our naming convention
-  if (grepl("_raw_duckdb$", table_name_raw) && isTRUE(loaded_successfully[table_name_raw])) {
-    cat(paste0("\n#### Table: `", table_name_raw, "`\n"))
-    
-    # Get column count from DB
-    db_cols <- DBI::dbListFields(con, table_name_raw)
-    num_db_cols <- length(db_cols)
-    
-    # Get defined column count
-    original_key <- sub("_raw_duckdb$", "", table_name_raw) # e.g. "sale" from "sale_raw_duckdb"
-    num_defined_cols <- length(col_names_lists[[original_key]])
-
-    cat(paste0("*Defined columns: ", num_defined_cols, ", Columns in DB table: ", num_db_cols, "*\n"))
-    if (num_defined_cols != num_db_cols && num_db_cols > 0) {
-         cat(paste0("<p style='color:orange;'><strong>Warning:</strong> Mismatch in column count for `", table_name_raw, 
-                    "`. Defined: ", num_defined_cols, ", Actual in DB: ", num_db_cols, 
-                    ". This could indicate issues with delimiter, quoting, or column name definitions.</p>"))
-    }
-
-    # Preview first 3 rows
-    cat("\n##### First 3 Rows:\n")
-    tryCatch({
-      preview_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name_raw, " LIMIT 3"))
-      if (nrow(preview_data) > 0) {
-        kable(preview_data, caption = paste("First 3 rows of", table_name_raw)) %>% 
-          kableExtra::kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), 
-                                    full_width = FALSE,
-                                    font_size = 10) %>% # Smaller font for wide tables
-          print()
-      } else {
-        cat("Table is empty or could not retrieve rows.\n")
-      }
-    }, error = function(e) {
-      cat(paste0("<p style='color:red;'>Error previewing table `", table_name_raw, "`: ", e$message, "</p>\n"))
-    })
-    
-    # Show structure (column names and types from DuckDB's perspective)
-    cat("\n##### Structure (from DuckDB):\n")
-    tryCatch({
-        # DuckDB's PRAGMA table_info('table_name') is good for this
-        structure_info <- DBI::dbGetQuery(con, paste0("PRAGMA table_info('", table_name_raw, "');"))
-        if (nrow(structure_info) > 0) {
-            kable(structure_info %>% select(name, type), caption = paste("Structure of", table_name_raw)) %>% 
-              kableExtra::kable_styling(bootstrap_options = c("condensed"), full_width = FALSE) %>%
-              print()
-        } else {
-            cat("Could not retrieve structure information.\n")
-        }
-    }, error = function(e) {
-      cat(paste0("<p style='color:red;'>Error getting structure for table `", table_name_raw, "`: ", e$message, "</p>\n"))
-    })
-    cat("\n---\n") # Separator
-  }
-}
-```
-
-# 5. EDA Preparation
-
-Read the comments at the beginning of each code chunk.
 
 
 ```{r}
-# select 80k Appraisal_Account records and join the latest Sale record
-# There appears some Error with empty values in
-# appraisal_account_raw_duckdb (relevant) -- it works however with the first 80k rows
-# tax_account_raw_duckdb (irrelevant)
-# tax_description_raw_duckdb (irrelevant)
-
-# get list of tables
-DBI::dbListTables(con)
-
-# retrieve apraisal_account_raw_duckdb
-appraisal_account <- DBI::dbGetQuery(con, "SELECT * FROM appraisal_account_raw_duckdb limit 80000")
-
-# retrieve sale_raw_duckdb and join on Parcel_Number
-sales <- DBI::dbGetQuery(con, "SELECT * FROM sale_raw_duckdb")
-sales <- appraisal_account %>%
-  dplyr::inner_join(sales, by = "Parcel_Number") 
-
-# get the most recent sale per parcel
-sales <- sales %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::slice_max(Sale_Date_Raw, n = 1) %>%
-  dplyr::ungroup()
-
-# drop Parcels that appear more than once
-sales <- sales %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::mutate(Count = n()) %>%
-  dplyr::filter(Count == 1) %>%
-  dplyr::ungroup() %>%
-  dplyr::select(-Count)
-
-# print unique parcels
-unique_parcels <- unique(sales$Parcel_Number)
-cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), "\n"))
-
-```
-
-```{r}
-# select improvement_builtas_raw_duckdb and improvement_raw_duckdb and join on Parcel_Number add Building_ID
-
-improvement <- DBI::dbGetQuery(con, "SELECT * FROM improvement_raw_duckdb")
-improvement_builtas <- DBI::dbGetQuery(con, "SELECT * FROM improvement_builtas_raw_duckdb")
-improvement <- improvement %>%
-  dplyr::inner_join(improvement_builtas, by = c("Parcel_Number", "Building_ID"))
-improvement <- improvement %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::slice_max(Year_Built_Raw, n = 1) %>%
-  dplyr::ungroup()
-```
-
-```{r}  
-# join improvement and sales on Parcel_Number
-# filter for Residential, Valid, Improved
-# TODO: currently double Parcel_Number are dropped. check if this is correct (mutliple improvements). but must have just one anyway
-# 21k Rows left for EDA
-
-full_data <- sales %>%
-  dplyr::inner_join(improvement, by = "Parcel_Number") %>%
-  dplyr::filter(Appraisal_Account_Type.x == "Residential") %>%
-  dplyr::filter(Valid_Invalid_Raw == "1") %>%
-  dplyr::filter(Improved_Vacant_Raw == "1")
-
-#drop Parcels that appear more than once
-full_data <- full_data %>%
-  dplyr::group_by(Parcel_Number) %>%
-  dplyr::mutate(Count = n()) %>%
-  dplyr::filter(Count == 1) %>%
-  dplyr::ungroup() %>%
-  dplyr::select(-Count)
-
-# print unique parcels
-unique_parcels <- unique(full_data$Parcel_Number)
-cat(paste0("Unique parcels in the most recent sales: ", length(unique_parcels), "\n"))
+library(dplyr)
 
 full_data <- full_data %>%
-  dplyr::select(Parcel_Number, Sale_Date_Raw, Sale_Price_Raw, Year_Built_Raw, Bedrooms_Raw, Bathrooms_Raw, Square_Feet_Raw, 
-                Latitude_Raw, Longitude_Raw, Neighborhood, View_Quality, Stories_Raw, Adjusted_Year_Built_Raw, Quality, Condition, 
-                Utility_Electric, Utility_Sewer, Utility_Water, Street_Type, Valid_Invalid_Raw, Improved_Vacant_Raw)
-```
-```{r}  
-# Convert to the right data types
-# this could be stored in DB, csv etc. and loaded in the future
-
-full_data <- full_data %>%
+  dplyr::select(
+    Sale_Date_Raw,
+    Sale_Price_Raw,
+    Square_Feet_Raw,
+    Latitude_Raw,
+    Longitude_Raw,
+    Bedrooms_Raw,
+    Bathrooms_Raw,
+    Stories_Raw,
+    Quality,
+    Condition,
+    Neighborhood,
+    Street_Type,
+    Utility_Water,
+    Utility_Electric,
+    Utility_Sewer,
+    Improved_Vacant_Raw,
+    Year_Built_Raw
+  ) %>%
   mutate(
-    Sale_Date_Raw = as.Date(Sale_Date_Raw, format = "%m/%d/%Y"),
-    Sale_Price_Raw = as.numeric(Sale_Price_Raw),
-    Year_Built_Raw = as.numeric(Year_Built_Raw),
-    Adjusted_Year_Built_Raw = as.numeric(Adjusted_Year_Built_Raw),
-    Bedrooms_Raw = as.numeric(Bedrooms_Raw),
-    Bathrooms_Raw = as.numeric(Bathrooms_Raw),
-    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
-    Latitude_Raw = as.numeric(Latitude_Raw),
-     Stories_Raw = as.numeric(Stories_Raw), 
-    Longitude_Raw = as.numeric(Longitude_Raw),
-    Neighborhood = as.factor(Neighborhood),
-    View_Quality = as.factor(View_Quality),
-    Quality = as.factor(Quality),
-    Condition = as.factor(Condition),
-    Utility_Electric = as.factor(Utility_Electric),
-    Utility_Sewer = as.factor(Utility_Sewer),
-    Utility_Water = as.factor(Utility_Water),
-    Street_Type = as.factor(Street_Type),
-    Valid_Invalid_Raw = as.factor(Valid_Invalid_Raw),
-    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw)
+    Sale_Date_Raw       = as.Date(Sale_Date_Raw),
+    Sale_Price_Raw      = as.numeric(Sale_Price_Raw),
+    Square_Feet_Raw     = as.numeric(Square_Feet_Raw),
+    Latitude_Raw        = as.numeric(Latitude_Raw),
+    Longitude_Raw       = as.numeric(Longitude_Raw),
+    Bedrooms_Raw        = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw       = as.numeric(Bathrooms_Raw),
+    Stories_Raw         = as.numeric(Stories_Raw),
+    Quality             = as.factor(Quality),
+    Condition           = as.factor(Condition),
+    Neighborhood        = as.factor(Neighborhood),
+    Street_Type         = as.factor(Street_Type),
+    Utility_Water       = as.factor(Utility_Water),
+    Utility_Electric    = as.factor(Utility_Electric),
+    Utility_Sewer       = as.factor(Utility_Sewer),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Year_Built_Raw      = as.numeric(Year_Built_Raw)
   )
 ```
 
 # EDA
+
+```{r}
+str(full_data)
+```
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
+
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
+```
+```{r}
+full_data <- full_data %>%
+  filter(!is.na(Square_Feet_Raw), !is.na(Sale_Price_Raw))
+
+```
+
+```{r}
+full_data
+```
+
+
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
+
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
+```
+View Quality has too many missing values. We will, therefore, exclude it from further analysis and modelling.
+The other predictors will be imputed for modelling.
+
 
 ### Importing Libraries for EDA
 ```{r}
@@ -415,7 +125,6 @@ library(grid)
 library(GGally)
 library(tidyr)
 ```
-
 
 ## Size & Structure
 
@@ -432,14 +141,32 @@ ggplot(full_data, aes(x = Square_Feet_Raw)) +
   ) +
   theme_minimal()
 ```
+### Zooming in due to extreme outliers
+
+```{r}
+ggplot(full_data, aes(x = Square_Feet_Raw)) +
+  geom_histogram(binwidth = 100, fill = "steelblue", color = "black") +
+  coord_cartesian(xlim = c(0, 10000)) +  # just zoom the plot
+  labs(
+    title = "Distribution of Square Footage (Zoomed In)",
+    x = "Square Feet",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
 
 #### Square Footage vs. Sale Price
 ```{r}
 ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
   geom_point(alpha = 0.3, color = "#1f77b4") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred") +
   scale_y_continuous(labels = scales::dollar) +
   scale_x_continuous(labels = scales::comma) +
-  labs(title = "Sale Price vs. Square Footage", x = "Square Feet", y = "Sale Price") +
+  labs(
+    title = "Sale Price vs. Square Footage",
+    x = "Square Feet",
+    y = "Sale Price"
+  ) +
   theme_minimal()
 ```
 
@@ -464,10 +191,23 @@ ggplot(full_data, aes(x = factor(Bedrooms_Raw), fill = factor(Bedrooms_Raw))) +
 ggplot(full_data, aes(x = factor(Bedrooms_Raw), y = Sale_Price_Raw)) +
   geom_boxplot(fill = "#2ca02c", alpha = 0.6) +
   scale_y_log10(labels = scales::dollar) +
-  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price (log10)") +
+  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price") +
   theme_minimal()
 ```
 
+
+#### Zooming in for more information
+
+```{r}
+ggplot(full_data, aes(x = factor(Bedrooms_Raw), y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#2ca02c", alpha = 0.6) +
+  scale_y_log10(
+  labels = scales::dollar,
+  limits = c(50000, 1000000)
+) +
+  labs(title = "Sale Price by Number of Bedrooms", x = "Bedrooms", y = "Sale Price") +
+  theme_minimal()
+```
 
 ### Bathrooms
 
@@ -480,7 +220,8 @@ ggplot(full_data, aes(x = Bathrooms_Raw)) +
     x = "Bathrooms",
     y = "Count"
   ) +
-  theme_minimal()
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 #### Sale Price vs. Bathrooms
@@ -492,11 +233,11 @@ ggplot(full_data, aes(x = factor(Bathrooms_Raw), y = Sale_Price_Raw)) +
   labs(
     title = "Sale Price by Number of Bathrooms",
     x = "Bathrooms",
-    y = "Sale Price (log10)"
+    y = "Sale Price"
   ) +
-  theme_minimal()
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
-
 
 ### Stories
 
@@ -524,33 +265,44 @@ ggplot(full_data, aes(x = factor(Stories_Raw), y = Sale_Price_Raw, fill = factor
   labs(
     title = "Sale Price by Number of Stories",
     x = "Stories",
-    y = "Sale Price (log scale)",
+    y = "Sale Price",
     fill = "Stories"
   ) +
   theme_minimal()
 ```
 
 
-
 ### Correlation Matrix
 
 ```{r}
+# Load required libraries
+library(dplyr)
+library(corrplot)
+
+# Select numeric variables and remove rows with NAs
 numeric_vars <- full_data %>%
-  select(Sale_Price_Raw, Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
+  dplyr::select(Sale_Price_Raw, Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
   na.omit()
 
-ggpairs(numeric_vars, 
-        lower = list(continuous = wrap("points", alpha = 0.3)), 
-        diag = list(continuous = "densityDiag"), 
-        upper = list(continuous = "cor"))
-```
+# Compute the correlation matrix
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
 
+# Visualize the correlation matrix
+corrplot(cor_matrix, method = "circle", 
+         type = "upper",       # Show upper triangle only
+         order = "hclust",     # Cluster similar variables
+         addCoef.col = "black",# Add correlation coefficients
+         tl.col = "black",     # Text label color
+         tl.srt = 45,          # Text label rotation
+         number.cex = 0.8,     # Correlation number size
+         diag = FALSE)         # Do not show diagonal
+```
 
 ### Boxplots for Outlier Detection
 
 ```{r}
 boxplot_stats <- full_data %>%
-  select(Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
+  dplyr::select(Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
   pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
   ggplot(aes(x = Variable, y = Value)) +
   geom_boxplot(fill = "#d62728", alpha = 0.6) +
@@ -560,12 +312,11 @@ boxplot_stats
 ```
 
 
-
 ## Location 
 
 ### Mapping Median Price per Sqft Across Pierce County
 
-```{r warning=FALSE}} 
+```{r warning=FALSE} 
 # 1. Load Pierce County boundary (Washington = '53')
 pierce_county <- counties(state = "53", cb = TRUE) %>%
   filter(NAME == "Pierce")
@@ -576,6 +327,7 @@ full_data_sf <- full_data %>%
     Longitude_Raw = as.numeric(Longitude_Raw),
     Latitude_Raw = as.numeric(Latitude_Raw)
   ) %>%
+  filter(!is.na(Longitude_Raw) & !is.na(Latitude_Raw)) %>%
   st_as_sf(coords = c("Longitude_Raw", "Latitude_Raw"), crs = 4326, remove = FALSE)
 
 # 3. Transform Pierce County CRS to match full_data
@@ -669,62 +421,6 @@ ggplot() +
   )
 ```
 
-### View Quality
-
-```{r}
-# Beispiel: Kategorien in gewünschter Reihenfolge
-view_levels <- c(
-  "NA",
-  "View Lim -",
-  "View Lim",
-  "View Lim +",
-  "View Avg",
-  "View Avg +",
-  "View Good",
-  "View Good +",
-  "View V-Good"
-)
-
-# Faktor mit Reihenfolge erstellen
-full_data_sf <- full_data_sf %>%
-  mutate(
-    View_Quality = factor(View_Quality, levels = view_levels)
-  )
-
-# Quantile berechnen
-quantiles <- quantile(full_data_sf$Price_per_sqft, probs = c(0.01, 0.99), na.rm = TRUE)
-
-# Daten filtern auf 1%-99% Quantil
-filtered_data <- full_data_sf %>%
-  filter(Price_per_sqft >= quantiles[1], Price_per_sqft <= quantiles[2])
-
-# Boxplot with improved aesthetics
-ggplot(filtered_data, aes(x = View_Quality, y = Price_per_sqft)) +
-  geom_boxplot(fill = "#2C3E50", color = "black", alpha = 0.6, width = 0.7) +
-  scale_y_log10(
-    limits = c(quantiles[1], quantiles[2]),
-    breaks = scales::trans_breaks("log10", function(x) 10^x),
-    labels = scales::label_number(scale_cut = scales::cut_short_scale())
-  ) +
-  coord_cartesian(ylim = c(quantiles[1], 2000)) +
-  labs(
-    title = "House Price per Square Foot by View Quality",
-    subtitle = "",
-    x = "View Quality",
-    y = "Price per sqft"
-  ) +
-  theme_minimal(base_size = 13) +
-  theme(
-    plot.title = element_text(face = "bold", size = 16),
-    plot.subtitle = element_text(size = 12, color = "gray40"),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid.major.y = element_line(color = "gray85"),
-    panel.grid.minor.y = element_blank(),
-    axis.line = element_line(color = "gray60"),
-    panel.border = element_blank()
-  )
-```
-
 ### Neighborhood
 
 ```{r}
@@ -780,8 +476,6 @@ ggplot(median_prices, aes(x = median_price)) +
   theme_minimal(base_size = 13)
 
 ```
-
-
 ## Utilities
 
 ### Utility Water
@@ -797,8 +491,9 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Water)) +
     y = "Water Utility"
   ) +
   theme_minimal(base_size = 21)
-
 ```
+
+
 
 ### Utility Electric
 ```{r}
@@ -814,6 +509,7 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Electric)) +
   theme_minimal(base_size = 21) 
 ```
 
+
 ### Utility Sewer
 ```{r}
 # Create boxplots per category of sewer utility
@@ -827,6 +523,7 @@ ggplot(full_data_sf, aes(x = Price_per_sqft, y = Utility_Sewer)) +
   ) +
   theme_minimal(base_size = 21)
 ```
+
 
 ### Street type
 
@@ -862,34 +559,186 @@ ggplot(full_data_sf, aes(x = Sale_Price_Raw)) +
 
 ```
 
+```{r}
+summary(full_data_sf$Sale_Price_Raw)
+```
+
 
 ### Sales Price per Square Foot
 ```{r}
 ggplot(full_data_sf, aes(x = Price_per_sqft)) +
   geom_boxplot() +
-  scale_x_log10(labels = scales::dollar) +
-  labs(
-    title = "Distribution of Sales Price",
-    x = "Sales Price",
-  ) +
-  theme_minimal(base_size = 21)+
-  theme(axis.text.y=element_blank(),
-        axis.ticks.y=element_blank())
+  labs(title = "Distribution of Price per Square Foot",
+       x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
 
 ```
-
-# 6. Close DuckDB Connection (End of Session)
 
 ```{r}
-#| label: cleanup-duckdb-connection
-#| echo: false 
-#| include: false 
+summary(full_data_sf$Price_per_sqft)
+```
 
-if (exists("con") && DBI::dbIsValid(con)) {
-  DBI::dbDisconnect(con, shutdown = TRUE)
-  cat("DuckDB connection closed.\n") # Message suppressed by include=false
-}
-rm(list = ls()) # Clean up environment
+## Quality & Condition
+
+### Year Built
+
+```{r}
+# Age distributions
+full_data %>%
+  ggplot(aes(x = Year_Built_Raw)) +
+  geom_histogram(binwidth = 5, fill = "#F39C12", color = "black") +
+  labs(title = "Distribution of Year Built", x = "Year Built", y = "Count") +
+  theme_minimal()
 
 
 ```
+
+### Price vs. Age
+
+```{r}
+# Price vs Age
+full_data %>%
+  mutate(Building_Age = Sale_Date_Raw - as.Date(paste0(Year_Built_Raw, "-01-01"))) %>%
+  ggplot(aes(x = as.numeric(Building_Age)/365.25, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE, color = "red") +
+  scale_y_log10(labels = scales::dollar, limits = c(50000, 1000000)) +
+  labs(
+    title = "Sale Price vs. Building Age (based on Year Built)",
+    x = "Building Age (Years)",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+
+### Quality
+
+```{r}
+full_data$Quality <- factor(full_data$Quality, levels = c(
+  "Low", "Low Plus", "Fair", "Fair Plus",
+  "Average", "Average Plus", "Good", "Good Plus",
+  "Very Good", "Very Good Plus", "Excellent"
+))
+ggplot(full_data, aes(x = Quality, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#3498DB", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Quality", x = "Quality", y = "Sale Price") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Condition
+```{r}
+full_data$Condition <- factor(full_data$Condition, levels = c(
+  "Uninhabitable", "Very Poor", "Extra Poor", "Poor", 
+  "Fair", "Average", "Good", "NA"
+))
+ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#27AE60", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Condition", x = "Condition", y = "Sale Price") +
+  theme_minimal()
+```
+
+
+## Multivariate Visualization
+
+1. Do large homes with high quality ratings sell at disproportionately higher prices?
+
+```{r}
+ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3, size = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  scale_y_log10(labels = scales::dollar) +
+  facet_wrap(~ Quality, scales = "free") +
+  labs(title = "Sale Price vs. Square Feet by Quality",
+       x = "Square Feet", y = "Sale Price") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+2. Do pricing patterns by size differ across neighborhoods?
+
+```{r}
+top_neigh <- full_data %>%
+  count(Neighborhood) %>%
+  top_n(5) %>%
+  pull(Neighborhood)
+
+filtered_data <- full_data %>%
+  filter(Neighborhood %in% top_neigh) 
+
+filtered_data %>%
+  filter(!is.na(Quality), !is.na(Neighborhood)) %>%
+  ggplot(aes(x = Quality, y = Sale_Price_Raw)) +
+  geom_boxplot(outlier.shape = NA, fill = "#3498DB", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(
+    title = "Sale Price by Quality across Top 5 Neighborhoods",
+    x = "Quality",
+    y = "Sale Price"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 9)
+  ) +
+  facet_wrap(~Neighborhood, scales = "free_y")
+
+```
+
+
+3. How does the combination of condition and quality affect price?
+
+```{r}
+full_data %>%
+  group_by(Condition, Quality) %>%
+  summarise(
+    median_pps = median(Sale_Price_Raw / Square_Feet_Raw, na.rm = TRUE),
+    n = n()
+  ) %>%
+  arrange(desc(median_pps)) %>%
+  knitr::kable()
+```
+
+
+
+4. Are price patterns different in northern vs. southern areas (by Latitude)?
+
+
+```{r}
+# Filter and classify region
+full_data_new <- full_data %>%
+  filter(!is.na(Square_Feet_Raw), !is.na(Sale_Price_Raw), !is.na(Latitude_Raw)) %>%
+  mutate(Region = ifelse(Latitude_Raw > 47.1, "North", "South"))
+
+# Generate plot
+ggplot(full_data_new, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+  geom_point(alpha = 0.3, size = 0.5) +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  facet_wrap(~ Region, scales = "free") +
+  scale_y_log10(labels = scales::dollar) +
+  labs(
+    title = "Price vs. Size in North vs. South Pierce County",
+    x = "Square Feet",
+    y = "Sale Price"
+  ) +
+  theme_minimal()
+```
+
+5. Who’s in the top 1% of price per sqft? What are they like?
+
+
+```{r}
+threshold <- quantile(full_data$Sale_Price_Raw / full_data$Square_Feet_Raw, 0.99, na.rm = TRUE)
+
+full_data %>%
+  mutate(PPS = Sale_Price_Raw / Square_Feet_Raw) %>%
+  filter(PPS >= threshold) %>%
+  count(Quality, Condition, sort = TRUE) %>%
+  knitr::kable()
+```
+

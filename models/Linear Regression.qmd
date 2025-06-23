@@ -1,0 +1,660 @@
+---
+title: "Linear Regression (incl. Lasso)"
+author: "B1_Pierce-House-Price"
+date: "today"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo 
+    code-fold: true
+    code-summary: "Show/Hide Code"
+    df-print: kable # For nice table printing with knitr::kable
+editor: source
+execute:
+  echo: true
+  warning: false   # Suppress warnings globally for now
+  message: false   # Suppress messages globally for now
+  error: true      # Display errors if they occur
+---
+
+```{r}
+library(dplyr)
+library(readr)
+library(tidyr)
+
+full_data <- read_csv("../final_data.csv", show_col_types = FALSE)
+```
+
+```{r}
+names(full_data)
+
+```
+```{r}
+full_data <- full_data %>%
+  dplyr::select(
+    Sale_Date_Raw,
+    Sale_Price_Raw,
+    Square_Feet_Raw,
+    Latitude_Raw,
+    Longitude_Raw,
+    Bedrooms_Raw,
+    Bathrooms_Raw,
+    Stories_Raw,
+    Quality,
+    Condition,
+    Neighborhood,
+    Street_Type,
+    Utility_Water,
+    Utility_Electric,
+    Utility_Sewer,
+    Improved_Vacant_Raw,
+    Year_Built_Raw
+  ) %>%
+  mutate(
+    Sale_Date_Raw       = as.Date(Sale_Date_Raw),
+    Sale_Price_Raw      = as.numeric(Sale_Price_Raw),
+    Square_Feet_Raw     = as.numeric(Square_Feet_Raw),
+    Latitude_Raw        = as.numeric(Latitude_Raw),
+    Longitude_Raw       = as.numeric(Longitude_Raw),
+    Bedrooms_Raw        = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw       = as.numeric(Bathrooms_Raw),
+    Stories_Raw         = as.numeric(Stories_Raw),
+    Quality             = as.factor(Quality),
+    Condition           = as.factor(Condition),
+    Neighborhood        = as.factor(Neighborhood),
+    Street_Type         = as.factor(Street_Type),
+    Utility_Water       = as.factor(Utility_Water),
+    Utility_Electric    = as.factor(Utility_Electric),
+    Utility_Sewer       = as.factor(Utility_Sewer),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Year_Built_Raw      = as.numeric(Year_Built_Raw)
+  )
+```
+
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
+
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
+
+```
+
+
+
+```{r}
+# View structure and summary after preprocessing
+str(full_data)
+summary(full_data)
+```
+
+
+```{r}
+# Remove factor columns with fewer than 2 levels
+full_data <- full_data %>%
+  dplyr::select(where(~ !(is.factor(.) && nlevels(.) < 2)))
+```
+
+
+### Standardization
+
+Saving a copy before standardization
+
+```{r}
+full_data_raw <- full_data
+```
+
+```{r}
+numeric_vars <- c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw", 
+                  "Stories_Raw", "Latitude_Raw", "Longitude_Raw", "Year_Built_Raw")
+
+full_data[numeric_vars] <- scale(full_data[numeric_vars])
+```
+
+
+# Baseline Linear Model
+
+```{r}
+# Only keep neighborhoods with at least 5 records
+neighborhood_counts <- table(full_data$Neighborhood)
+valid_neighborhoods <- names(neighborhood_counts[neighborhood_counts >= 5])
+
+full_data_filtered <- full_data %>%
+  filter(Neighborhood %in% valid_neighborhoods) %>%
+  droplevels()
+```
+
+```{r}
+library(rsample)
+
+set.seed(123)
+split_obj <- initial_split(full_data_filtered, prop = 0.8, strata = Neighborhood)
+
+train_data <- training(split_obj)
+test_data  <- testing(split_obj)
+```
+```{r}
+factor_cols <- names(train_data)[sapply(train_data, is.factor)]
+
+for (col in factor_cols) {
+  test_data[[col]] <- factor(test_data[[col]], levels = levels(train_data[[col]]))
+}
+
+# Drop rows with NAs from unmatched levels (if any sneak in)
+test_data <- test_data %>% drop_na()
+```
+
+
+```{r}
+lm_model <- lm(Sale_Price_Raw ~ ., data = train_data)
+summary(lm_model)
+```
+
+
+## Making Predictions and Evaluation
+
+```{r}
+preds <- predict(lm_model, newdata = test_data)
+actuals <- test_data$Sale_Price_Raw
+
+# Evaluate
+RMSE_base <- sqrt(mean((preds - actuals)^2))
+MAE_base <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Test RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_base, MAE_base, R2))
+```
+```{r}
+MAPE_base <- mean(abs((actuals - preds) / actuals)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_base))
+```
+
+## Collapse Rare Neighborhoods
+
+```{r}
+library(forcats)
+library(rsample)
+library(dplyr)
+
+# Step 1: Collapse rare Neighborhoods into "Other"
+# Ensure at least 100 occurrences to keep level
+full_data$Neighborhood <- fct_lump_min(full_data$Neighborhood, min = 100, other_level = "Other")
+
+# Step 2 (Optional): Keep only the top 20 most frequent levels (including "Other")
+full_data$Neighborhood <- fct_lump_n(full_data$Neighborhood, n = 20)
+
+# Step 3: Drop unused factor levels
+full_data$Neighborhood <- droplevels(full_data$Neighborhood)
+
+# Step 4: Now you can safely stratify on Neighborhood
+set.seed(123)
+split_obj <- initial_split(full_data, prop = 0.8, strata = Neighborhood)
+
+train_collapsed <- training(split_obj)
+test_collapsed  <- testing(split_obj)
+
+```
+
+
+
+
+## Model Refit
+
+```{r}
+# Refit after collapsing Neighborhood
+lm_model_clean <- lm(Sale_Price_Raw ~ ., data = train_collapsed)
+summary(lm_model_clean)
+```
+
+
+## Predict and Evaluate
+
+
+```{r}
+# Predict and evaluate
+preds <- predict(lm_model_clean, newdata = test_collapsed)
+actuals <- test_collapsed$Sale_Price_Raw
+
+RMSE_collapsed <- sqrt(mean((preds - actuals)^2))
+MAE_collapsed <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Cleaned LM Model — RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_collapsed, MAE_collapsed, R2))
+```
+```{r}
+MAPE_collapsed <- mean(abs((actuals - preds) / actuals)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_collapsed))
+```
+
+
+# Feature Selection (Stepwise)
+
+```{r}
+if (!require(MASS)) install.packages("MASS")
+library(MASS)
+step_model <- stepAIC(lm_model_clean, direction = "both")
+summary(step_model)
+```
+
+# Model Evaluation
+
+```{r}
+par(mfrow = c(2, 2))
+plot(lm_model_clean)
+```
+The residual vs. fitted plot (top-left) shows non-random patterns and heteroskedasticity (i.e., increasing spread with fitted values), suggesting the model’s variance isn't constant across all price ranges — particularly at higher price points. The Q-Q plot (top-right) reveals non-normal residuals, with a heavy tail on the right, indicating the presence of outliers or skewness (especially in high-value sales). The scale-location plot (bottom-left) confirms the heteroskedasticity, as the red line trends upward, showing that residual variance increases with predicted price. Lastly, the residuals vs. leverage plot (bottom-right) identifies a few high-leverage and high-residual points (e.g., observations like 1852 and 14769), which could have a disproportionate impact on model estimates — these might be extreme or unusual sales.
+
+
+
+# Residual Distribution
+
+```{r}
+hist(resid(step_model), breaks = 50, main = "Residual Histogram")
+```
+
+
+# Lasso
+```{r}
+library(glmnet)
+
+base_lm <- lm(Sale_Price_Raw ~ ., data = full_data)
+std_resid <- rstandard(base_lm)
+full_data_clean <- full_data[abs(std_resid) < 3, ]
+
+# Step 4: Align factor levels in test set (important for model.matrix)
+factor_cols <- names(train_collapsed)[sapply(train_collapsed, is.factor)]
+for (col in factor_cols) {
+  test_collapsed[[col]] <- factor(test_collapsed[[col]], levels = levels(train_collapsed[[col]]))
+}
+test_collapsed <- test_collapsed %>% drop_na()
+
+# Step 5: Prepare data for glmnet (model.matrix handles factors)
+x_train <- model.matrix(~ ., data = train_collapsed[, !names(train_collapsed) %in% "Sale_Price_Raw"])[, -1]
+y_train <- train_collapsed$Sale_Price_Raw
+
+x_test <- model.matrix(~ ., data = test_collapsed[, !names(test_collapsed) %in% "Sale_Price_Raw"])[, -1]
+y_test <- test_collapsed$Sale_Price_Raw
+
+# Step 6: Fit Lasso with cross-validation
+set.seed(123)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+
+# Step 7: Final Lasso model
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Step 8: Predict and evaluate
+pred_lasso <- predict(lasso_model, s = best_lambda, newx = x_test)
+
+RMSE_lasso <- sqrt(mean((pred_lasso - y_test)^2))
+MAE_lasso <- mean(abs(pred_lasso - y_test))
+R2 <- 1 - sum((pred_lasso - y_test)^2) / sum((y_test - mean(y_test))^2)
+
+cat(sprintf("Lasso RMSE: %.2f\nLasso MAE: %.2f\nLasso R²: %.3f\n\n", RMSE_lasso, MAE_lasso, R2))
+
+# Step 9: Show non-zero coefficients
+coef_df <- as.matrix(coef(lasso_model, s = best_lambda))
+non_zero <- coef_df[coef_df[, 1] != 0, , drop = FALSE]
+
+cat("Selected predictors (non-zero coefficients):\n")
+print(non_zero)
+```
+
+```{r}
+MAPE_lasso <- mean(abs((y_test - pred_lasso) / y_test)) * 100
+cat(sprintf("Lasso MAPE: %.2f%%\n", MAPE_lasso))
+```
+
+
+```{r}
+summary(full_data$Sale_Price_Raw)
+summary(full_data_clean$Sale_Price_Raw)
+```
+```{r}
+# Remove rows with invalid sale prices
+full_data <- full_data %>%
+  filter(Sale_Price_Raw > 1000)  # Removes 0 and unrealistically low values
+
+full_data_clean <- full_data_clean %>%
+  filter(Sale_Price_Raw > 1000)  # Removes 0 and unrealistically low values
+```
+
+```{r}
+summary(full_data$Sale_Price_Raw)
+summary(full_data_clean$Sale_Price_Raw)
+
+```
+```{r}
+# 1. Remove low sale prices and log-transform
+full_datalog <- full_data_clean %>%
+  mutate(Log_Sale_Price = log(Sale_Price_Raw)) %>%
+  filter(is.finite(Log_Sale_Price))
+```
+
+```{r}
+summary(full_datalog$Log_Sale_Price)
+```
+```{r}
+summary(full_datalog)
+```
+
+# Stepwise + Log-Transformed Price
+
+```{r}
+# Ensure required libraries are available
+library(dplyr)
+
+set.seed(123)
+split_idx <- sample(1:nrow(full_datalog), 0.8 * nrow(full_datalog))
+train <- full_datalog[split_idx, ]
+test  <- full_datalog[-split_idx, ]
+
+# Step 4: Stepwise model selection (on log-transformed target)
+model_full <- lm(Log_Sale_Price ~ ., data = train %>% dplyr::select(-Sale_Price_Raw))
+model_step <- step(model_full, direction = "both", trace = FALSE)
+
+preds <- predict(model_step, newdata = test)
+actuals <- test$Log_Sale_Price
+
+# Step 6: Metrics
+RMSE_step_log <- sqrt(mean((preds - actuals)^2))
+MAE_step_log  <- mean(abs(preds - actuals))
+R2   <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Stepwise Log-LM RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_step_log, MAE_step_log, R2))
+
+```
+
+```{r}
+preds_exp <- exp(preds)
+actuals_exp <- exp(actuals)
+MAPE_step_log <- mean(abs((actuals_exp - preds_exp) / actuals_exp)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_step_log))
+```
+
+
+
+```{r}
+summary(model_full)
+```
+
+```{r}
+summary(model_step)
+```
+
+
+
+# Full Lasso Pipeline with Log-Transformed Target
+
+```{r}
+# Load required library
+library(glmnet)
+
+# Train-test split
+set.seed(123)
+split_idx <- sample(1:nrow(full_datalog), 0.8 * nrow(full_datalog))
+train <- full_datalog[split_idx, ]
+test <- full_datalog[-split_idx, ]
+
+# Prepare matrices
+x_train <- model.matrix(Log_Sale_Price ~ ., data = train[, !names(train) %in% c("Sale_Price_Raw")])[, -1]
+y_train <- train$Log_Sale_Price
+
+x_test <- model.matrix(Log_Sale_Price ~ ., data = test[, !names(test) %in% c("Sale_Price_Raw")])[, -1]
+y_test <- test$Log_Sale_Price
+
+# Lasso CV
+set.seed(123)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+
+# Final model
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Predict and transform back
+preds <- predict(lasso_model, s = best_lambda, newx = x_test)
+actuals <- y_test
+RMSE_lasso_log <- sqrt(mean((preds - actuals)^2))
+MAE_lasso_log <- mean(abs(preds - actuals))
+R2 <- 1 - sum((preds - actuals)^2) / sum((actuals - mean(actuals))^2)
+
+cat(sprintf("Log-Transformed Lasso RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_lasso_log, MAE_lasso_log, R2))
+
+# Non-zero coefficients
+cat("Selected predictors (non-zero coefficients):\n")
+print(coef(lasso_model)[coef(lasso_model) != 0])
+```
+```{r}
+preds_exp <- exp(preds)
+actuals_exp <- exp(actuals)
+MAPE_lasso_log <- mean(abs((actuals_exp - preds_exp) / actuals_exp)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_lasso_log))
+```
+
+
+
+# Multicollinearity Check
+
+```{r}
+library(car)
+vif(step_model)
+```
+
+
+```{r}
+# Load necessary library
+library(ggcorrplot)
+
+# Subset only numeric predictors
+numeric_data <- full_data_clean[, c("Sale_Price_Raw", "Square_Feet_Raw", "Bedrooms_Raw", 
+                              "Bathrooms_Raw", "Stories_Raw", "Latitude_Raw", "Longitude_Raw")]
+
+# Compute correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+# Plot correlation matrix
+ggcorrplot(cor_matrix,
+           method = "circle",
+           type = "lower",
+           lab = TRUE,
+           lab_size = 3,
+           colors = c("red", "white", "blue"),
+           title = "Correlation Matrix of Numeric Predictors",
+           ggtheme = theme_minimal())
+
+```
+
+
+```{r}
+# Compute correlation matrix
+cor_matrix <- cor(full_data_clean[, c("Square_Feet_Raw", "Bedrooms_Raw", "Bathrooms_Raw",
+                                "Stories_Raw", "Latitude_Raw", "Longitude_Raw", "Sale_Price_Raw")],
+                  use = "complete.obs")
+
+# Compute average absolute correlation for each variable
+avg_abs_corr <- apply(cor_matrix, 2, function(x) mean(abs(x[x != 1])))
+
+# Sort descending
+sort(avg_abs_corr, decreasing = TRUE)
+```
+Decision: Remove Bathrooms_Raw from your model going forward. It’s moderately (to even strongly) correlated with Bedrooms_Raw, and contributes more to collinearity.
+
+```{r}
+library(dplyr)
+
+full_data_clean <- full_data_clean %>% dplyr::select(-Bathrooms_Raw)
+
+```
+
+```{r}
+str(full_data_clean)
+summary(full_data_clean$Sale_Price_Raw)
+```
+
+
+# Updated Linear Model (OLS) Without Bathrooms_Raw
+
+```{r}
+
+# Train-test split
+set.seed(123)
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
+
+# Fit OLS model
+lm_model <- lm(Sale_Price_Raw ~ ., data = train)
+pred <- predict(lm_model, newdata = test)
+
+# Evaluate
+RMSE_nobathrooms <- sqrt(mean((pred - test$Sale_Price_Raw)^2))
+MAE_nobathrooms <- mean(abs(pred - test$Sale_Price_Raw))
+R2 <- 1 - sum((pred - test$Sale_Price_Raw)^2) / sum((test$Sale_Price_Raw - mean(test$Sale_Price_Raw))^2)
+
+cat(sprintf("OLS (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_nobathrooms, MAE_nobathrooms, R2))
+
+```
+
+```{r}
+MAPE_nobathrooms <- mean(abs((test$Sale_Price_Raw - pred) / test$Sale_Price_Raw)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_nobathrooms))
+```
+
+# Updated Lasso Model Without Bathrooms_Raw
+
+```{r}
+# Split
+set.seed(123)
+split_idx <- sample(1:nrow(full_data_clean), 0.8 * nrow(full_data_clean))
+train <- full_data_clean[split_idx, ]
+test <- full_data_clean[-split_idx, ]
+
+# Prepare data
+x_train <- model.matrix(Sale_Price_Raw ~ ., data = train)[, -1]
+y_train <- train$Sale_Price_Raw
+x_test <- model.matrix(Sale_Price_Raw ~ ., data = test)[, -1]
+y_test <- test$Sale_Price_Raw
+
+# Cross-validated Lasso
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+lasso_model <- glmnet(x_train, y_train, alpha = 1, lambda = best_lambda)
+
+# Predict & evaluate
+pred <- predict(lasso_model, s = best_lambda, newx = x_test)
+RMSE_lasso_nobathrooms <- sqrt(mean((pred - y_test)^2))
+MAE_lasso_nobathrooms <- mean(abs(pred - y_test))
+R2 <- 1 - sum((pred - y_test)^2) / sum((y_test - mean(y_test))^2)
+
+cat(sprintf("Lasso (no Bathrooms) RMSE: %.2f\nMAE: %.2f\nR²: %.3f\n", RMSE_lasso_nobathrooms, MAE_lasso_nobathrooms, R2))
+
+# Show non-zero coefficients
+cat("Selected predictors:\n")
+print(coef(lasso_model)[coef(lasso_model) != 0])
+```
+
+```{r}
+MAPE_lasso_nobathrooms <- mean(abs((y_test - pred) / y_test)) * 100
+cat(sprintf("MAPE: %.2f%%\n", MAPE_lasso_nobathrooms))
+```
+```{r}
+str(full_data_clean)
+```
+
+
+# Summary
+
+```{r}
+# Summary Table with MAE, RMSE, and MAPE
+results_summary <- data.frame(
+  Model = c(
+    "Baseline Linear Model",
+    "Cleaned Linear Model (Neighborhood Collapsed)",
+    "Lasso Model",
+    "OLS (No Bathrooms)",
+    "Lasso (No Bathrooms)"
+  ),
+  MAE = c(
+    MAE_base,
+    MAE_collapsed,
+    MAE_lasso,
+    MAE_nobathrooms,
+    MAE_lasso_nobathrooms
+  ),
+  RMSE = c(
+    RMSE_base,
+    RMSE_collapsed,
+    RMSE_lasso,
+    RMSE_nobathrooms,
+    RMSE_lasso_nobathrooms
+  ),
+  MAPE = c(
+    MAPE_base,
+    MAPE_collapsed,
+    MAPE_lasso,
+    MAPE_nobathrooms,
+    MAPE_lasso_nobathrooms
+  )
+)
+
+# Print formatted summary table
+knitr::kable(results_summary, digits = 2, caption = "Summary of MAE, RMSE, and MAPE by Model")
+
+
+```
+
+
+
+# Cross-Validation for Lasso (no Bathrooms)
+
+```{r}
+library(glmnet)
+library(caret)
+library(Metrics)
+
+set.seed(123)
+
+# Set up model matrix (drop intercept)
+x <- model.matrix(Sale_Price_Raw ~ ., data = full_data_clean)[, -1]
+y <- full_data_clean$Sale_Price_Raw
+
+# Cross-validated Lasso using caret + glmnet
+ctrl <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final"
+)
+
+lasso_cv <- train(
+  x = x,
+  y = y,
+  method = "glmnet",
+  trControl = ctrl,
+  tuneLength = 10
+)
+
+# Extract best lambda
+best_lambda <- lasso_cv$bestTune$lambda
+
+# Predicted vs actual from CV
+pred_df <- lasso_cv$pred
+pred_df <- pred_df[pred_df$lambda == best_lambda, ]
+
+# Calculate metrics
+rmse  <- RMSE(pred_df$pred, pred_df$obs)
+mae   <- MAE(pred_df$pred, pred_df$obs)
+r2    <- R2(pred_df$pred, pred_df$obs)
+mape  <- mape(pred_df$obs, pred_df$pred) * 100
+
+# Output
+cat(sprintf("Lasso (Full Data, No Bathrooms)\nRMSE: %.2f\nMAE: %.2f\nR²: %.3f\nMAPE: %.2f%%\n",
+            rmse, mae, r2, mape))
+
+```
+
+
+

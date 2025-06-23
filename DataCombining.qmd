@@ -1,0 +1,478 @@
+---
+title: "Data Combining"
+format: html
+editor: visual
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(purrr)
+
+# 1. Define path and column names for each file
+project_root_relative_data_path <- "C:/Users/Sara/Documents/DS Masters/Semester 2/Solution Engineering/R/uas-soe-r-ss-2025/data/raw/"
+
+file_paths_list <- list(
+  sale = paste0(project_root_relative_data_path, "sale.txt"),
+  appraisal_account = paste0(project_root_relative_data_path, "appraisal_account.txt"),
+  improvement = paste0(project_root_relative_data_path, "improvement.txt"),
+  improvement_detail = paste0(project_root_relative_data_path, "improvement_detail.txt"),
+  improvement_builtas = paste0(project_root_relative_data_path, "improvement_builtas.txt"),
+  land_attribute = paste0(project_root_relative_data_path, "land_attribute.txt"),
+  seg_merge = paste0(project_root_relative_data_path, "seg_merge.txt"),
+  tax_account = paste0(project_root_relative_data_path, "tax_account.txt"),
+  tax_description = paste0(project_root_relative_data_path, "tax_description.txt")
+)
+
+col_names_lists <- list(
+  sale = c(
+    "ETN", "Parcel_Count", "Parcel_Number", "Sale_Date_Raw", "Sale_Price_Raw", 
+    "Deed_Type", "Grantor", "Grantee", "Valid_Invalid_Raw", 
+    "Confirmed_Uncomfirmed_Raw", # Note: "Uncomfirmed" as per PDF
+    "Exclude_Reason", "Improved_Vacant_Raw", "Appraisal_Account_Type"
+  ), 
+  
+  appraisal_account = c(
+    "Parcel_Number", "Appraisal_Account_Type", "Business_Name", "Value_Area_ID", 
+    "Land_Economic_Area", "Buildings", "Group_Account_Number", 
+    "Land_Gross_Acres_Raw", "Land_Net_Acres_Raw", "Land_Gross_Square_Feet_Raw", 
+    "Land_Net_Square_Feet_Raw", "Land_Gross_Front_Feet_Raw", "Land_Width_Raw", 
+    "Land_Depth_Raw", "Submerged_Area_Square_Feet_Raw", "Appraisal_Date_Raw", 
+    "Waterfront_Type", "View_Quality", "Utility_Electric", "Utility_Sewer", 
+    "Utility_Water", "Street_Type", "Latitude_Raw", "Longitude_Raw"
+  ), 
+  
+  improvement = c(
+    "Parcel_Number", "Building_ID", "Property_Type", "Neighborhood", 
+    "Neighborhood_Extension", "Square_Feet_Raw", "Net_Square_Feet_Raw", 
+    "Percent_Complete_Raw", "Condition", "Quality", "Primary_Occupancy_Code_Raw", 
+    "Primary_Occupancy_Description", "Mobile_Home_Serial_Number", 
+    "Mobile_Home_Total_Length_Raw", "Mobile_Home_Make", 
+    "Attic_Finished_Square_Feet_Raw", "Basement_Square_Feet_Raw", 
+    "Basement_Finished_Square_Feet_Raw", "Carport_Square_Feet_Raw", 
+    "Balcony_Square_Feet_Raw", "Porch_Square_Feet_Raw", 
+    "Attached_Garage_Square_Feet_Raw", "Detached_Garage_Square_Feet_Raw", 
+    "Fireplaces_Raw", "Basement_Garage_Door_Raw"
+  ),
+                 
+  improvement_detail = c(
+    "Parcel_Number", "Building_ID", "Detail_Type", "Detail_Description", "Units_Raw"
+  ),
+                        
+  improvement_builtas = c(
+    "Parcel_Number", "Building_ID", "Built_As_Number_Raw", "Built_As_ID_Raw", 
+    "Built_As_Description", "Built_As_Square_Feet_Raw", "HVAC_Code_Raw", 
+    "HVAC_Description", "Exterior", "Interior", "Stories_Raw", "Story_Height_Raw", 
+    "Sprinkler_Square_Feet_Raw", "Roof_Cover", "Bedrooms_Raw", "Bathrooms_Raw", 
+    "Units_Count_Raw", "Class_Code", "Class_Description", "Year_Built_Raw", 
+    "Year_Remodeled_Raw", "Adjusted_Year_Built_Raw", "Physical_Age_Raw", 
+    "Built_As_Length_Raw", "Built_As_Width_Raw", "Mobile_Home_Model"
+  ),
+                         
+  land_attribute = c(
+    "Parcel_Number", "Attribute_Key", "Attribute_Description"
+  ), 
+                    
+  seg_merge = c(
+    "Seg_Merge_Number", "Parent_Child_Indicator", "Parcel_Number", 
+    "Continued_Indicator", "Completed_Date_Raw", "Tax_Year_Raw"
+  ), 
+               
+  tax_account = c(
+    "Parcel_Number", "Account_Type", "Property_Type", "Site_Address", 
+    "Use_Code", "Use_Description", "Tax_Year_Prior_Raw", 
+    "Tax_Code_Area_Prior_Year", "Exemption_Type_Prior_Year", 
+    "Current_Use_Code_Prior_Year", "Land_Value_Prior_Year_Raw", 
+    "Improvement_Value_Prior_Year_Raw", "Total_Market_Value_Prior_Year_Raw", 
+    "Taxable_Value_Prior_Year_Raw", "Tax_Year_Current_Raw", 
+    "Tax_Code_Area_Current_Year", "Exemption_Type_Current_Year", 
+    "Current_Use_Code_Current_Year", "Land_Value_Current_Year_Raw", 
+    "Improvement_Value_Current_Year_Raw", "Total_Market_Value_Current_Year_Raw", 
+    "Taxable_Value_Current_Year_Raw", "Range", "Township", "Section", 
+    "Quarter_Section", "Subdivision_Name", "Located_On_Parcel"
+  ), 
+                 
+  tax_description = c(
+    "Parcel_Number", "Line_Number_Raw", "Tax_Description_Line"
+  )
+)
+# 2. Function to read each file with the correct column names
+read_raw_txt <- function(path, col_names) {
+  read_delim(
+    file = path,
+    delim = "|",
+    col_names = col_names,
+    col_types = cols(.default = col_character()),  # initially load as character
+    trim_ws = TRUE,
+    show_col_types = FALSE
+  )
+}
+
+# 3. Read all files into a named list
+raw_data <- map(names(file_paths_list), function(key) {
+  read_raw_txt(file_paths_list[[key]], col_names_lists[[key]])
+}) %>% setNames(names(file_paths_list))
+
+```
+
+```{r}
+sale_latest <- raw_data$sale %>%
+  mutate(Sale_Date_Raw = as.Date(Sale_Date_Raw, format = "%m/%d/%Y")) %>%
+  group_by(Parcel_Number) %>%
+  slice_max(Sale_Date_Raw, with_ties = FALSE) %>%
+  ungroup()
+```
+
+```{r}
+# 1. Latest sale only
+sale_latest <- raw_data$sale %>%
+  mutate(Sale_Date_Raw = as.Date(Sale_Date_Raw, format = "%m/%d/%Y")) %>%
+  group_by(Parcel_Number) %>%
+  slice_max(Sale_Date_Raw, with_ties = FALSE) %>%
+  ungroup()
+
+# 2. One row per parcel from appraisal and tax
+appraisal_one <- raw_data$appraisal_account %>%
+  group_by(Parcel_Number) %>%
+  slice(1) %>%
+  ungroup()
+
+tax_one <- raw_data$tax_account %>%
+  group_by(Parcel_Number) %>%
+  slice(1) %>%
+  ungroup()
+
+# 3. Largest building per parcel
+improvement_main <- raw_data$improvement %>%
+  mutate(Square_Feet_Raw = as.numeric(Square_Feet_Raw)) %>%
+  group_by(Parcel_Number) %>%
+  slice_max(Square_Feet_Raw, with_ties = FALSE) %>%
+  ungroup()
+
+# 4. Join builtas info for that building
+improvement_builtas_main <- raw_data$improvement_builtas %>%
+  group_by(Parcel_Number) %>%
+  slice_max(Built_As_Square_Feet_Raw, with_ties = FALSE) %>%
+  ungroup()
+
+improvement_full <- improvement_main %>%
+  left_join(improvement_builtas_main, by = c("Parcel_Number", "Building_ID"))
+
+# 5. Optional: summarize improvement_detail, land_attribute, tax_description
+# For example: count types
+detail_summary <- raw_data$improvement_detail %>%
+  group_by(Parcel_Number) %>%
+  summarize(n_details = n(), .groups = "drop")
+
+land_summary <- raw_data$land_attribute %>%
+  group_by(Parcel_Number) %>%
+  summarize(
+    land_tags = paste(unique(Attribute_Description), collapse = "; "),
+    .groups = "drop"
+  )
+
+# 6. Final merge (all one row per Parcel_Number)
+full_data_latest100 <- sale_latest %>%
+  left_join(appraisal_one, by = "Parcel_Number") %>%
+  left_join(improvement_full, by = "Parcel_Number") %>%
+  left_join(tax_one, by = "Parcel_Number") %>%
+  left_join(detail_summary, by = "Parcel_Number") %>%
+  left_join(land_summary, by = "Parcel_Number")
+```
+
+```{r}
+nrow(full_data_latest100)
+length(unique(full_data_latest100$Parcel_Number))
+```
+
+```{r}
+full_data_latest_valid <- full_data_latest100 %>%
+  filter(Valid_Invalid_Raw == "1")
+```
+
+```{r}
+nrow(full_data_latest_valid)                 # Rows after filtering
+length(unique(full_data_latest_valid$Parcel_Number))
+```
+
+```{r}
+str(full_data_latest_valid)
+```
+
+```{r}
+# Save combined CSV
+write_csv(full_data_latest_valid, "full_data_latest_valid.csv")
+```
+
+```{r}
+library(dplyr)
+library(readr)
+
+full_data <- read_csv("full_data_latest_valid.csv", show_col_types = FALSE)
+```
+
+```{r}
+full_data <- full_data %>%
+  dplyr::select(
+    Sale_Date_Raw,
+    Sale_Price_Raw,
+    Square_Feet_Raw,
+    Latitude_Raw,
+    Longitude_Raw,
+    Bedrooms_Raw,
+    Bathrooms_Raw,
+    Stories_Raw,
+    Quality,
+    Condition,
+    Neighborhood,
+    View_Quality,
+    Street_Type,
+    Utility_Water,
+    Utility_Electric,
+    Utility_Sewer,
+    Improved_Vacant_Raw,
+    Year_Built_Raw
+  ) %>%
+  mutate(
+    Sale_Date_Raw       = as.Date(Sale_Date_Raw),
+    Sale_Price_Raw      = as.numeric(Sale_Price_Raw),
+    Square_Feet_Raw     = as.numeric(Square_Feet_Raw),
+    Latitude_Raw        = as.numeric(Latitude_Raw),
+    Longitude_Raw       = as.numeric(Longitude_Raw),
+    Bedrooms_Raw        = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw       = as.numeric(Bathrooms_Raw),
+    Stories_Raw         = as.numeric(Stories_Raw),
+    Quality             = as.factor(Quality),
+    Condition           = as.factor(Condition),
+    Neighborhood        = as.factor(Neighborhood),
+    View_Quality        = as.factor(View_Quality),
+    Street_Type         = as.factor(Street_Type),
+    Utility_Water       = as.factor(Utility_Water),
+    Utility_Electric    = as.factor(Utility_Electric),
+    Utility_Sewer       = as.factor(Utility_Sewer),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Year_Built_Raw      = as.numeric(Year_Built_Raw)
+  )
+
+```
+
+```{r}
+str(full_data)
+```
+
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
+
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
+```
+
+```{r}
+full_data <- full_data %>%
+  filter(!is.na(Square_Feet_Raw), !is.na(Sale_Price_Raw))
+
+```
+
+```{r}
+library(tidyr)
+
+# 1. Drop View_Quality entirely
+full_data <- full_data %>% dplyr::select(-View_Quality)
+
+# 2. Convert fields to numeric
+full_data <- full_data %>%
+  mutate(
+    Bedrooms_Raw    = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw   = as.numeric(Bathrooms_Raw),
+    Stories_Raw     = as.numeric(Stories_Raw),
+    Year_Built_Raw  = as.numeric(Year_Built_Raw),
+    Square_Feet_Raw = as.numeric(Square_Feet_Raw),
+    Latitude_Raw    = as.numeric(Latitude_Raw),
+    Longitude_Raw   = as.numeric(Longitude_Raw)
+  )
+
+# 3. Drop rows with missing values in crucial fields
+full_data <- full_data %>%
+  filter(
+    !is.na(Square_Feet_Raw),
+    !is.na(Quality),
+    !is.na(Condition),
+    !is.na(Neighborhood),
+    !is.na(Latitude_Raw),
+    !is.na(Longitude_Raw)
+  )
+
+# 4. Drop rows with any remaining missing values
+full_data <- full_data %>% drop_na()
+```
+
+```{r}
+full_data
+```
+```{r}
+# Count missing values per column
+missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
+missing_summary <- sort(missing_summary, decreasing = TRUE)
+print(missing_summary)
+
+# Optionally show % missing
+missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
+data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
+```
+
+
+# Outlier Removal
+
+### Sales Price
+```{r}
+library(ggplot2)
+#Create a histogram of the sales price
+ggplot(full_data, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+```{r}
+Q1 <- quantile(full_data$Sale_Price_Raw, 0.25, na.rm = TRUE)
+Q3 <- quantile(full_data$Sale_Price_Raw, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+full_data_nooutliers <- full_data %>%
+  filter(Sale_Price_Raw >= (Q1 - 1.5 * IQR), Sale_Price_Raw <= (Q3 + 1.5 * IQR))
+
+```
+
+```{r}
+str(full_data_nooutliers)
+```
+```{r}
+#Create a histogram of the sales price
+ggplot(full_data_nooutliers, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price",
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+```
+```{r}
+summary(full_data$Sale_Price_Raw)
+quantile(full_data$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
+```
+
+```{r}
+summary(full_data_nooutliers$Sale_Price_Raw)
+quantile(full_data_nooutliers$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
+```
+
+
+```{r}
+full_data_new <- full_data %>%
+  filter(Sale_Price_Raw >= 10000)
+```
+
+```{r}
+Q1 <- quantile(full_data_new$Sale_Price_Raw, 0.25, na.rm = TRUE)
+Q3 <- quantile(full_data_new$Sale_Price_Raw, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+full_data_new <- full_data_new %>%
+  filter(Sale_Price_Raw >= (Q1 - 1.5 * IQR), Sale_Price_Raw <= (Q3 + 1.5 * IQR))
+
+```
+
+
+```{r}
+summary(full_data_new$Sale_Price_Raw)
+quantile(full_data_new$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
+```
+
+Minimum price is now $10,000, which removed junk entries like $0 or $100.
+
+1st Percentile is ~$30K, still within realistic bounds (possibly small homes or land).
+
+Upper range (Max $925K) seems reasonable unless you're specifically excluding luxury homes.
+
+Mean and median are much closer now, which means less skew.
+```{r}
+str(full_data_new)
+```
+
+```{r}
+ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
+  geom_boxplot() +
+  scale_x_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    x = "Sales Price"
+  ) +
+  theme_minimal(base_size = 21) + 
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+```{r}
+ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  scale_x_log10(labels = scales::dollar) +
+  labs(title = "Histogram of Sale Prices (Log Scale)", x = "Sale Price", y = "Count") +
+  theme_minimal(base_size = 15)
+```
+```{r}
+full_data_new <- full_data_new %>%
+  mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
+
+ggplot(full_data_new, aes(x = Price_Per_SqFt)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Price per Square Foot", x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
+```
+```{r}
+full_data_new_sqfeet <- full_data_new %>%
+  filter(Square_Feet_Raw > 200) 
+```
+
+```{r}
+str(full_data_new_sqfeet)
+```
+```{r}
+full_data_new_sqfeet <- full_data_new_sqfeet %>%
+  mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
+
+Q1 <- quantile(full_data_new_sqfeet$Price_Per_SqFt, 0.25, na.rm = TRUE)
+Q3 <- quantile(full_data_new_sqfeet$Price_Per_SqFt, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+full_data_new_sqfeet <- full_data_new_sqfeet %>%
+  filter(Price_Per_SqFt >= (Q1 - 1.5 * IQR),
+         Price_Per_SqFt <= (Q3 + 1.5 * IQR))
+```
+
+```{r}
+ggplot(full_data_new_sqfeet, aes(x = Price_Per_SqFt)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Price per Square Foot (Cleaned)",
+       x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
+```
+```{r}
+# Save combined CSV
+write_csv(full_data_new_sqfeet, "final_data.csv")
+```
+

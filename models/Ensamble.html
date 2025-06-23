@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.3.450">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Karol Topor">
+
+<title>Ensamble</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="Ensamble_files/libs/clipboard/clipboard.min.js"></script>
+<script src="Ensamble_files/libs/quarto-html/quarto.js"></script>
+<script src="Ensamble_files/libs/quarto-html/popper.min.js"></script>
+<script src="Ensamble_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="Ensamble_files/libs/quarto-html/anchor.min.js"></script>
+<link href="Ensamble_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="Ensamble_files/libs/quarto-html/quarto-syntax-highlighting.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="Ensamble_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="Ensamble_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="Ensamble_files/libs/bootstrap/bootstrap.min.css" rel="stylesheet" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body>
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Outline</h2>
+   
+  <ul>
+  <li><a href="#load-libraries" id="toc-load-libraries" class="nav-link active" data-scroll-target="#load-libraries"><span class="header-section-number">1</span> Load libraries</a></li>
+  <li><a href="#load-anddata" id="toc-load-anddata" class="nav-link" data-scroll-target="#load-anddata"><span class="header-section-number">2</span> Load anddata</a>
+  <ul>
+  <li><a href="#columns-names" id="toc-columns-names" class="nav-link" data-scroll-target="#columns-names"><span class="header-section-number">2.1</span> Columns names</a></li>
+  <li><a href="#describe-the-data" id="toc-describe-the-data" class="nav-link" data-scroll-target="#describe-the-data"><span class="header-section-number">2.2</span> Describe the data</a></li>
+  </ul></li>
+  <li><a href="#modeling" id="toc-modeling" class="nav-link" data-scroll-target="#modeling"><span class="header-section-number">3</span> Modeling</a>
+  <ul>
+  <li><a href="#prepare-data" id="toc-prepare-data" class="nav-link" data-scroll-target="#prepare-data"><span class="header-section-number">3.1</span> Prepare data</a></li>
+  <li><a href="#simple-catboost-model" id="toc-simple-catboost-model" class="nav-link" data-scroll-target="#simple-catboost-model"><span class="header-section-number">3.2</span> Simple CatBoost model</a>
+  <ul>
+  <li><a href="#cpu" id="toc-cpu" class="nav-link" data-scroll-target="#cpu"><span class="header-section-number">3.2.1</span> CPU</a></li>
+  <li><a href="#gpu" id="toc-gpu" class="nav-link" data-scroll-target="#gpu"><span class="header-section-number">3.2.2</span> GPU</a></li>
+  </ul></li>
+  </ul></li>
+  <li><a href="#cross-validation" id="toc-cross-validation" class="nav-link" data-scroll-target="#cross-validation"><span class="header-section-number">4</span> Cross Validation</a>
+  <ul>
+  <li><a href="#first-cv-round" id="toc-first-cv-round" class="nav-link" data-scroll-target="#first-cv-round"><span class="header-section-number">4.1</span> First CV round</a></li>
+  <li><a href="#second-cv-round" id="toc-second-cv-round" class="nav-link" data-scroll-target="#second-cv-round"><span class="header-section-number">4.2</span> Second CV round</a></li>
+  <li><a href="#third-vc-round" id="toc-third-vc-round" class="nav-link" data-scroll-target="#third-vc-round"><span class="header-section-number">4.3</span> Third VC round</a></li>
+  <li><a href="#fourth-vc-round" id="toc-fourth-vc-round" class="nav-link" data-scroll-target="#fourth-vc-round"><span class="header-section-number">4.4</span> Fourth VC round</a></li>
+  <li><a href="#fitfth-vc-round" id="toc-fitfth-vc-round" class="nav-link" data-scroll-target="#fitfth-vc-round"><span class="header-section-number">4.5</span> Fitfth VC round</a></li>
+  </ul></li>
+  <li><a href="#final-model" id="toc-final-model" class="nav-link" data-scroll-target="#final-model"><span class="header-section-number">5</span> Final Model</a>
+  <ul>
+  <li><a href="#actuall-vs.-predicted-sale-prices" id="toc-actuall-vs.-predicted-sale-prices" class="nav-link" data-scroll-target="#actuall-vs.-predicted-sale-prices"><span class="header-section-number">5.1</span> Actuall vs.&nbsp;predicted sale prices:</a></li>
+  <li><a href="#metrics" id="toc-metrics" class="nav-link" data-scroll-target="#metrics"><span class="header-section-number">5.2</span> Metrics</a></li>
+  </ul></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Ensamble</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Karol Topor </p>
+          </div>
+  </div>
+    
+  
+    
+  </div>
+  
+
+</header>
+
+<section id="load-libraries" class="level1" data-number="1">
+<h1 data-number="1"><span class="header-section-number">1</span> Load libraries</h1>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(readr)) <span class="fu">install.packages</span>(<span class="st">"readr"</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(data.table)) <span class="fu">install.packages</span>(<span class="st">"data.table"</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(dplyr)) <span class="fu">install.packages</span>(<span class="st">"dplyr"</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(caret)) <span class="fu">install.packages</span>(<span class="st">"caret"</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(tictoc)) <span class="fu">install.packages</span>(<span class="st">"tictoc"</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(Metrics)) <span class="fu">install.packages</span>(<span class="st">"Metrics"</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">require</span>(MetricsWeighted)) <span class="fu">install.packages</span>(<span class="st">"MetricsWeighted"</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(readr)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(data.table)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(caret)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(catboost)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tictoc)</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(Metrics) </span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MetricsWeighted)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="load-anddata" class="level1" data-number="2">
+<h1 data-number="2"><span class="header-section-number">2</span> Load anddata</h1>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Load data</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(<span class="st">"../data/final_data.csv"</span>, </span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">col_types =</span> <span class="fu">cols</span>(<span class="at">Sale_Date_Raw =</span> <span class="fu">col_date</span>(<span class="at">format =</span> <span class="st">"%Y-%m-%d"</span>))</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># View data</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(data)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 6 × 18
+  Sale_Date_Raw Sale_Price_Raw Square_Feet_Raw Latitude_Raw Longitude_Raw
+  &lt;date&gt;                 &lt;dbl&gt;           &lt;dbl&gt;        &lt;dbl&gt;         &lt;dbl&gt;
+1 2012-06-11            625000            1673         47.2         -123.
+2 2013-09-17            120000            1510         47.3         -123.
+3 2020-03-07            250000             620         47.3         -123.
+4 2004-12-17            320000            1364         47.3         -123.
+5 2024-10-04            822000            2484         47.3         -123.
+6 2008-07-22            369000            2375         47.3         -123.
+# ℹ 13 more variables: Bedrooms_Raw &lt;dbl&gt;, Bathrooms_Raw &lt;dbl&gt;,
+#   Stories_Raw &lt;dbl&gt;, Quality &lt;chr&gt;, Condition &lt;chr&gt;, Neighborhood &lt;chr&gt;,
+#   Street_Type &lt;chr&gt;, Utility_Water &lt;chr&gt;, Utility_Electric &lt;chr&gt;,
+#   Utility_Sewer &lt;chr&gt;, Improved_Vacant_Raw &lt;dbl&gt;, Year_Built_Raw &lt;dbl&gt;,
+#   Price_Per_SqFt &lt;dbl&gt;</code></pre>
+</div>
+</div>
+<section id="columns-names" class="level2" data-number="2.1">
+<h2 data-number="2.1" class="anchored" data-anchor-id="columns-names"><span class="header-section-number">2.1</span> Columns names</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(data)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code> [1] "Sale_Date_Raw"       "Sale_Price_Raw"      "Square_Feet_Raw"    
+ [4] "Latitude_Raw"        "Longitude_Raw"       "Bedrooms_Raw"       
+ [7] "Bathrooms_Raw"       "Stories_Raw"         "Quality"            
+[10] "Condition"           "Neighborhood"        "Street_Type"        
+[13] "Utility_Water"       "Utility_Electric"    "Utility_Sewer"      
+[16] "Improved_Vacant_Raw" "Year_Built_Raw"      "Price_Per_SqFt"     </code></pre>
+</div>
+</div>
+</section>
+<section id="describe-the-data" class="level2" data-number="2.2">
+<h2 data-number="2.2" class="anchored" data-anchor-id="describe-the-data"><span class="header-section-number">2.2</span> Describe the data</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># describe the data</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(data)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code> Sale_Date_Raw        Sale_Price_Raw   Square_Feet_Raw  Latitude_Raw  
+ Min.   :1997-01-01   Min.   : 10000   Min.   :  223   Min.   :46.74  
+ 1st Qu.:2008-04-29   1st Qu.:219000   1st Qu.: 1344   1st Qu.:47.11  
+ Median :2017-08-18   Median :331000   Median : 1770   Median :47.17  
+ Mean   :2014-12-24   Mean   :358823   Mean   : 1885   Mean   :47.17  
+ 3rd Qu.:2021-04-21   3rd Qu.:475000   3rd Qu.: 2302   3rd Qu.:47.23  
+ Max.   :2025-04-24   Max.   :925000   Max.   :91082   Max.   :47.40  
+ Longitude_Raw     Bedrooms_Raw    Bathrooms_Raw     Stories_Raw   
+ Min.   :-122.8   Min.   : 0.000   Min.   : 0.000   Min.   : 0.00  
+ 1st Qu.:-122.5   1st Qu.: 3.000   1st Qu.: 1.750   1st Qu.: 1.00  
+ Median :-122.4   Median : 3.000   Median : 2.250   Median : 2.00  
+ Mean   :-122.4   Mean   : 3.187   Mean   : 2.105   Mean   : 1.58  
+ 3rd Qu.:-122.3   3rd Qu.: 4.000   3rd Qu.: 2.500   3rd Qu.: 2.00  
+ Max.   :-121.5   Max.   :34.000   Max.   :14.000   Max.   :16.00  
+   Quality           Condition         Neighborhood       Street_Type       
+ Length:156511      Length:156511      Length:156511      Length:156511     
+ Class :character   Class :character   Class :character   Class :character  
+ Mode  :character   Mode  :character   Mode  :character   Mode  :character  
+                                                                            
+                                                                            
+                                                                            
+ Utility_Water      Utility_Electric   Utility_Sewer      Improved_Vacant_Raw
+ Length:156511      Length:156511      Length:156511      Min.   :0.0000     
+ Class :character   Class :character   Class :character   1st Qu.:1.0000     
+ Mode  :character   Mode  :character   Mode  :character   Median :1.0000     
+                                                          Mean   :0.9892     
+                                                          3rd Qu.:1.0000     
+                                                          Max.   :1.0000     
+ Year_Built_Raw Price_Per_SqFt   
+ Min.   :1870   Min.   :  2.432  
+ 1st Qu.:1973   1st Qu.:126.904  
+ Median :1994   Median :184.001  
+ Mean   :1986   Mean   :200.345  
+ 3rd Qu.:2005   3rd Qu.:263.906  
+ Max.   :2025   Max.   :484.656  </code></pre>
+</div>
+</div>
+</section>
+</section>
+<section id="modeling" class="level1" data-number="3">
+<h1 data-number="3"><span class="header-section-number">3</span> Modeling</h1>
+<section id="prepare-data" class="level2" data-number="3.1">
+<h2 data-number="3.1" class="anchored" data-anchor-id="prepare-data"><span class="header-section-number">3.1</span> Prepare data</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span>)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>deterministic <span class="ot">=</span> <span class="cn">TRUE</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>idx   <span class="ot">&lt;-</span> <span class="fu">createDataPartition</span>(data<span class="sc">$</span>Sale_Price_Raw, <span class="at">p =</span> <span class="fl">0.80</span>, <span class="at">list =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>train <span class="ot">&lt;-</span> data[idx,  ]</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>test  <span class="ot">&lt;-</span> data[<span class="sc">-</span>idx,  ]</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="co">#── feature prep helper ──────────────────────────────────────</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>prep <span class="ot">&lt;-</span> <span class="cf">function</span>(df) {</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  df <span class="sc">%&gt;%</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">mutate</span>(</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>      <span class="at">Sale_Date_Raw =</span> <span class="fu">as.numeric</span>(Sale_Date_Raw),</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>      <span class="fu">across</span>(<span class="fu">where</span>(is.character), as.factor)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">%&gt;%</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">select</span>(<span class="sc">-</span>Sale_Price_Raw)</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>X_tr <span class="ot">&lt;-</span> <span class="fu">prep</span>(train); </span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>y_tr <span class="ot">&lt;-</span> train<span class="sc">$</span>Sale_Price_Raw</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>X_te <span class="ot">&lt;-</span> <span class="fu">prep</span>(test);  </span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>y_te <span class="ot">&lt;-</span> test<span class="sc">$</span>Sale_Price_Raw</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>train_pool <span class="ot">&lt;-</span> <span class="fu">catboost.load_pool</span>(X_tr, <span class="at">label =</span> y_tr)</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>test_pool <span class="ot">&lt;-</span> <span class="fu">catboost.load_pool</span>(X_te, <span class="at">label =</span> y_te)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="simple-catboost-model" class="level2" data-number="3.2">
+<h2 data-number="3.2" class="anchored" data-anchor-id="simple-catboost-model"><span class="header-section-number">3.2</span> Simple CatBoost model</h2>
+<section id="cpu" class="level3" data-number="3.2.1">
+<h3 data-number="3.2.1" class="anchored" data-anchor-id="cpu"><span class="header-section-number">3.2.1</span> CPU</h3>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tic</span>(<span class="st">"CatBoost training on CPU"</span>)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>model_cpu <span class="ot">&lt;-</span> <span class="fu">catboost.train</span>(</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">learn_pool =</span> train_pool,</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">params =</span> <span class="fu">list</span>(</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">loss_function =</span> <span class="st">"RMSE"</span>,</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">iterations    =</span> <span class="dv">64</span>,</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">learning_rate =</span> <span class="fl">0.1</span>,</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">depth         =</span> <span class="dv">3</span>,</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">l2_leaf_reg   =</span> <span class="dv">3</span>,</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">logging_level =</span> <span class="st">"Silent"</span></span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>))</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a><span class="co"># quick sanity check</span></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>pred  <span class="ot">&lt;-</span> <span class="fu">catboost.predict</span>(model_cpu, test_pool)</span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a><span class="fu">toc</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>CatBoost training on CPU: 2.98 sec elapsed</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"RMSE:"</span>, <span class="fu">round</span>(<span class="fu">sqrt</span>(<span class="fu">mean</span>((pred <span class="sc">-</span> y_te)<span class="sc">^</span><span class="dv">2</span>)), <span class="dv">2</span>), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>RMSE: 25254.6 </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">catboost.get_feature_importance</span>(model_cpu,</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>                                <span class="at">pool =</span> <span class="cn">NULL</span>,</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>                                <span class="at">type =</span> <span class="st">"FeatureImportance"</span>,</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>                                <span class="at">thread_count =</span> <span class="sc">-</span><span class="dv">1</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>                          [,1]
+Sale_Date_Raw        3.3102888
+Square_Feet_Raw     46.8634027
+Latitude_Raw         0.0000000
+Longitude_Raw        0.0000000
+Bedrooms_Raw         0.0000000
+Bathrooms_Raw        0.1170643
+Stories_Raw          0.0000000
+Quality              0.3508894
+Condition            0.0000000
+Neighborhood         0.0000000
+Street_Type          0.0000000
+Utility_Water        0.0000000
+Utility_Electric     0.0000000
+Utility_Sewer        0.0000000
+Improved_Vacant_Raw  0.0000000
+Year_Built_Raw       0.0000000
+Price_Per_SqFt      49.3583549</code></pre>
+</div>
+</div>
+</section>
+<section id="gpu" class="level3" data-number="3.2.2">
+<h3 data-number="3.2.2" class="anchored" data-anchor-id="gpu"><span class="header-section-number">3.2.2</span> GPU</h3>
+<blockquote class="blockquote">
+<p>Training on GPU somehow breakes the rendering of the document, so it’s commented out.</p>
+</blockquote>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># tic("CatBoost training on GPU")</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="co"># model_gpu &lt;- catboost.train(</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="co">#   learn_pool = train_pool,</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="co">#   params = list(</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="co">#     loss_function = "RMSE",</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="co">#     iterations    = 64,</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="co">#     learning_rate = 0.1,</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="co">#     depth         = 3,</span></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a><span class="co">#     l2_leaf_reg   = 3,</span></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a><span class="co">#     logging_level = "Silent",</span></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="co">#     task_type = 'GPU'</span></span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="co"># ))</span></span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a><span class="co"># # quick sanity check</span></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="co"># pred  &lt;- catboost.predict(model_gpu, test_pool)</span></span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a><span class="co"># cat("RMSE:", round(sqrt(mean((pred - y_te)^2)), 2), "\n")</span></span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a><span class="co"># toc()</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># catboost.get_feature_importance(model_gpu,</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co">#                                 pool = NULL,</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co">#                                 type = "FeatureImportance",</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co">#                                 thread_count = -1)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+</section>
+</section>
+<section id="cross-validation" class="level1" data-number="4">
+<h1 data-number="4"><span class="header-section-number">4</span> Cross Validation</h1>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># X &lt;- data %&gt;% </span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="co">#   select(-Sale_Price_Raw) %&gt;% </span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="co">#   mutate(</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="co">#     Sale_Date_Raw = as.numeric(Sale_Date_Raw),</span></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a><span class="co">#     across(where(is.character), as.factor)</span></span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a><span class="co">#   )</span></span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a><span class="co"># y &lt;- data$Sale_Price_Raw</span></span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a><span class="co"># 5-fold CV ----------------------------------------------------------------------</span></span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a><span class="co"># ctrl &lt;- trainControl(method = "cv", number = 5, repeats = 3)</span></span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a><span class="co"># grid &lt;- expand.grid(</span></span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a><span class="co">#   depth         = c(8, 9, 10, 11, 15),</span></span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a><span class="co">#   learning_rate = c(0.05, 0.03, 0.02, 0.01),</span></span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a><span class="co">#   iterations    = c(800, 1000, 1200, 1500),</span></span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a><span class="co">#   l2_leaf_reg   = c(3, 5, 8),</span></span>
+<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a><span class="co">#   rsm = 1,</span></span>
+<span id="cb17-18"><a href="#cb17-18" aria-hidden="true" tabindex="-1"></a><span class="co">#   border_count = c(32, 64, 128)</span></span>
+<span id="cb17-19"><a href="#cb17-19" aria-hidden="true" tabindex="-1"></a><span class="co"># )</span></span>
+<span id="cb17-20"><a href="#cb17-20" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb17-21"><a href="#cb17-21" aria-hidden="true" tabindex="-1"></a><span class="co"># tic("CatBoost grid search (GPU)")</span></span>
+<span id="cb17-22"><a href="#cb17-22" aria-hidden="true" tabindex="-1"></a><span class="co"># cb_fit &lt;- train(</span></span>
+<span id="cb17-23"><a href="#cb17-23" aria-hidden="true" tabindex="-1"></a><span class="co">#   x = X, y = y,</span></span>
+<span id="cb17-24"><a href="#cb17-24" aria-hidden="true" tabindex="-1"></a><span class="co">#   method     = catboost.caret,</span></span>
+<span id="cb17-25"><a href="#cb17-25" aria-hidden="true" tabindex="-1"></a><span class="co">#   tuneGrid   = grid,</span></span>
+<span id="cb17-26"><a href="#cb17-26" aria-hidden="true" tabindex="-1"></a><span class="co">#   trControl  = ctrl,</span></span>
+<span id="cb17-27"><a href="#cb17-27" aria-hidden="true" tabindex="-1"></a><span class="co">#   metric     = "RMSE",</span></span>
+<span id="cb17-28"><a href="#cb17-28" aria-hidden="true" tabindex="-1"></a><span class="co">#   loss_function = "RMSE",          # passed straight to CatBoost</span></span>
+<span id="cb17-29"><a href="#cb17-29" aria-hidden="true" tabindex="-1"></a><span class="co">#   task_type     = "GPU",</span></span>
+<span id="cb17-30"><a href="#cb17-30" aria-hidden="true" tabindex="-1"></a><span class="co">#   logging_level = "Silent"</span></span>
+<span id="cb17-31"><a href="#cb17-31" aria-hidden="true" tabindex="-1"></a><span class="co"># )</span></span>
+<span id="cb17-32"><a href="#cb17-32" aria-hidden="true" tabindex="-1"></a><span class="co"># toc()</span></span>
+<span id="cb17-33"><a href="#cb17-33" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb17-34"><a href="#cb17-34" aria-hidden="true" tabindex="-1"></a><span class="co"># cb_fit$bestTune     # best hyper-parameters</span></span>
+<span id="cb17-35"><a href="#cb17-35" aria-hidden="true" tabindex="-1"></a><span class="co"># cb_fit$results</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<blockquote class="blockquote">
+<p>This took to long so I used the FH High-Performance Computing Cluster (HPC)</p>
+</blockquote>
+<p>And run a few CV rounds</p>
+<section id="first-cv-round" class="level2" data-number="4.1">
+<h2 data-number="4.1" class="anchored" data-anchor-id="first-cv-round"><span class="header-section-number">4.1</span> First CV round</h2>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-11-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>After a first run with 5 hyperparameters the result is hard to interpret but we can clearly see that higher <strong>border_count</strong> yields overall lower RMSE. Therefor taking a closer look at border count 128.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-12-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>The filtered results for border_count 128 reveal that <strong>tree depth</strong> 9,10 and 11 show the most promising RMSE values. Furthermore <strong>learning rate</strong> of 0.03 performs best among these three tree depths. <strong>l2_leaf_reg</strong> of 3 is also performing best among these three.</p>
+<p>Get model with best RMSE:</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>   depth learning_rate iterations l2_leaf_reg   rsm border_count     RMSE
+   &lt;int&gt;         &lt;num&gt;      &lt;int&gt;       &lt;int&gt; &lt;int&gt;        &lt;int&gt;    &lt;num&gt;
+1:    10          0.03       1000           3     1          128 11439.65
+   Rsquared     MAE   RMSESD   RsquaredSD    MAESD
+      &lt;num&gt;   &lt;num&gt;    &lt;num&gt;        &lt;num&gt;    &lt;num&gt;
+1: 0.996189 3402.28 663.0311 0.0004384262 77.96604</code></pre>
+</div>
+</div>
+</section>
+<section id="second-cv-round" class="level2" data-number="4.2">
+<h2 data-number="4.2" class="anchored" data-anchor-id="second-cv-round"><span class="header-section-number">4.2</span> Second CV round</h2>
+<p>After identifying the best hyper-parameters in the first round, we can now run a second round with higher border count and fewer combinations for other hyper parameters.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-14-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>Again we can see that higher <strong>border_count</strong> yields overall lower RMSE. Therefor taking a closer look at border count 512.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-15-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>Surprisingly, this time a <strong>learning rate</strong> of 0.2 performs best.</p>
+<p>Get model with lowest RMSE</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>   depth learning_rate iterations l2_leaf_reg   rsm border_count     RMSE
+   &lt;int&gt;         &lt;num&gt;      &lt;int&gt;       &lt;int&gt; &lt;int&gt;        &lt;int&gt;    &lt;num&gt;
+1:    12          0.02       1200           3     1          512 7144.427
+    Rsquared      MAE   RMSESD   RsquaredSD    MAESD
+       &lt;num&gt;    &lt;num&gt;    &lt;num&gt;        &lt;num&gt;    &lt;num&gt;
+1: 0.9985136 2046.235 665.8723 0.0002693738 78.94092</code></pre>
+</div>
+</div>
+</section>
+<section id="third-vc-round" class="level2" data-number="4.3">
+<h2 data-number="4.3" class="anchored" data-anchor-id="third-vc-round"><span class="header-section-number">4.3</span> Third VC round</h2>
+<p>After seeing the big drop between border_count of 256 and 512 I am convinced that we can go further with the border_count.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-17-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>First time we see that RMSE does not drop substantially with higher border_count. But we can see that <strong>learning rate</strong> of 0.03 performs best among the three tree depths. <strong>l2_leaf_reg</strong> of 3 is also performing best among these three.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-18-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>Get model with lowest RMSE</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>   depth learning_rate iterations l2_leaf_reg   rsm border_count     RMSE
+   &lt;int&gt;         &lt;num&gt;      &lt;int&gt;       &lt;int&gt; &lt;int&gt;        &lt;int&gt;    &lt;num&gt;
+1:    10          0.03       1200           3     1         8192 2802.726
+    Rsquared      MAE   RMSESD   RsquaredSD    MAESD
+       &lt;num&gt;    &lt;num&gt;    &lt;num&gt;        &lt;num&gt;    &lt;num&gt;
+1: 0.9997695 1425.925 411.8023 7.165977e-05 25.22185</code></pre>
+</div>
+</div>
+</section>
+<section id="fourth-vc-round" class="level2" data-number="4.4">
+<h2 data-number="4.4" class="anchored" data-anchor-id="fourth-vc-round"><span class="header-section-number">4.4</span> Fourth VC round</h2>
+<p>Further exploring higher border_count.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-20-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>Get model with lowest RMSE</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>   depth learning_rate iterations l2_leaf_reg   rsm border_count     RMSE
+   &lt;int&gt;         &lt;num&gt;      &lt;int&gt;       &lt;int&gt; &lt;int&gt;        &lt;int&gt;    &lt;num&gt;
+1:    10          0.03       1200           3     1        32768 2580.539
+    Rsquared      MAE   RMSESD   RsquaredSD    MAESD
+       &lt;num&gt;    &lt;num&gt;    &lt;num&gt;        &lt;num&gt;    &lt;num&gt;
+1: 0.9998083 1406.847 273.5422 4.070916e-05 53.05961</code></pre>
+</div>
+</div>
+</section>
+<section id="fitfth-vc-round" class="level2" data-number="4.5">
+<h2 data-number="4.5" class="anchored" data-anchor-id="fitfth-vc-round"><span class="header-section-number">4.5</span> Fitfth VC round</h2>
+<p>After going back and forth and looking at the results I decided to run a final CV round with a range or <strong>border_count</strong> raging from 1024 (2^10) to 65535 (2^16 - 1 - which is the maximum for this parameter). A <strong>l2_leaf_reg</strong> of 3, <strong>iterations</strong> of 1000 and 1200, <strong>learning rate</strong> of 0.02 and 0.03 and a <strong>three depth</strong> of 10.</p>
+<div class="cell">
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-22-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+<p>Get model with lowest RMSE</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>   depth learning_rate iterations l2_leaf_reg   rsm border_count     RMSE
+   &lt;int&gt;         &lt;num&gt;      &lt;int&gt;       &lt;int&gt; &lt;int&gt;        &lt;int&gt;    &lt;num&gt;
+1:    10          0.03       1200           3     1        32768 2603.128
+    Rsquared      MAE   RMSESD  RsquaredSD    MAESD
+       &lt;num&gt;    &lt;num&gt;    &lt;num&gt;       &lt;num&gt;    &lt;num&gt;
+1: 0.9998035 1386.375 292.7906 4.49552e-05 46.37051</code></pre>
+</div>
+</div>
+</section>
+</section>
+<section id="final-model" class="level1" data-number="5">
+<h1 data-number="5"><span class="header-section-number">5</span> Final Model</h1>
+<p>Based on the results of the CV rounds, we will use the following hyper-parameters for the final model:</p>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span>)</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>idx   <span class="ot">&lt;-</span> <span class="fu">createDataPartition</span>(data<span class="sc">$</span>Sale_Price_Raw, <span class="at">p =</span> <span class="fl">0.80</span>, <span class="at">list =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>train <span class="ot">&lt;-</span> data[idx,  ]</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>test  <span class="ot">&lt;-</span> data[<span class="sc">-</span>idx,  ]</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tic</span>(<span class="st">"CatBoost training Final Model"</span>)</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a><span class="co">#── feature prep helper ──────────────────────────────────────</span></span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>prep <span class="ot">&lt;-</span> <span class="cf">function</span>(df) {</span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>  df <span class="sc">%&gt;%</span></span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>    <span class="fu">mutate</span>(</span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>      <span class="at">Sale_Date_Raw =</span> <span class="fu">as.numeric</span>(Sale_Date_Raw),</span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>      <span class="fu">across</span>(<span class="fu">where</span>(is.character), as.factor)</span>
+<span id="cb23-14"><a href="#cb23-14" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">%&gt;%</span></span>
+<span id="cb23-15"><a href="#cb23-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">select</span>(<span class="sc">-</span>Sale_Price_Raw)</span>
+<span id="cb23-16"><a href="#cb23-16" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb23-17"><a href="#cb23-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-18"><a href="#cb23-18" aria-hidden="true" tabindex="-1"></a>X_tr <span class="ot">&lt;-</span> <span class="fu">prep</span>(train); </span>
+<span id="cb23-19"><a href="#cb23-19" aria-hidden="true" tabindex="-1"></a>y_tr <span class="ot">&lt;-</span> train<span class="sc">$</span>Sale_Price_Raw</span>
+<span id="cb23-20"><a href="#cb23-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-21"><a href="#cb23-21" aria-hidden="true" tabindex="-1"></a>X_te <span class="ot">&lt;-</span> <span class="fu">prep</span>(test);  </span>
+<span id="cb23-22"><a href="#cb23-22" aria-hidden="true" tabindex="-1"></a>y_te <span class="ot">&lt;-</span> test<span class="sc">$</span>Sale_Price_Raw</span>
+<span id="cb23-23"><a href="#cb23-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-24"><a href="#cb23-24" aria-hidden="true" tabindex="-1"></a><span class="co">#── CatBoost pools (no cat_features param needed) ─────────────</span></span>
+<span id="cb23-25"><a href="#cb23-25" aria-hidden="true" tabindex="-1"></a>tr_pool <span class="ot">&lt;-</span> <span class="fu">catboost.load_pool</span>(X_tr, <span class="at">label =</span> y_tr)</span>
+<span id="cb23-26"><a href="#cb23-26" aria-hidden="true" tabindex="-1"></a>te_pool <span class="ot">&lt;-</span> <span class="fu">catboost.load_pool</span>(X_te, <span class="at">label =</span> y_te)</span>
+<span id="cb23-27"><a href="#cb23-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-28"><a href="#cb23-28" aria-hidden="true" tabindex="-1"></a><span class="co">#── train final model on GPU ─────────────────────────────────</span></span>
+<span id="cb23-29"><a href="#cb23-29" aria-hidden="true" tabindex="-1"></a>final_model <span class="ot">&lt;-</span> <span class="fu">catboost.train</span>(</span>
+<span id="cb23-30"><a href="#cb23-30" aria-hidden="true" tabindex="-1"></a>  <span class="at">learn_pool =</span> tr_pool,</span>
+<span id="cb23-31"><a href="#cb23-31" aria-hidden="true" tabindex="-1"></a>  <span class="at">test_pool  =</span> te_pool,</span>
+<span id="cb23-32"><a href="#cb23-32" aria-hidden="true" tabindex="-1"></a>  <span class="at">params =</span> <span class="fu">list</span>(</span>
+<span id="cb23-33"><a href="#cb23-33" aria-hidden="true" tabindex="-1"></a>    <span class="at">depth         =</span> <span class="dv">10</span>,</span>
+<span id="cb23-34"><a href="#cb23-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">learning_rate =</span> <span class="fl">0.03</span>,</span>
+<span id="cb23-35"><a href="#cb23-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">iterations    =</span> <span class="dv">1200</span>,</span>
+<span id="cb23-36"><a href="#cb23-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">loss_function =</span> <span class="st">"RMSE"</span>,</span>
+<span id="cb23-37"><a href="#cb23-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">l2_leaf_reg   =</span> <span class="dv">3</span>,</span>
+<span id="cb23-38"><a href="#cb23-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">task_type     =</span> <span class="st">"CPU"</span>,</span>
+<span id="cb23-39"><a href="#cb23-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">border_count  =</span> <span class="dv">32768</span>   ,</span>
+<span id="cb23-40"><a href="#cb23-40" aria-hidden="true" tabindex="-1"></a>    <span class="at">logging_level =</span> <span class="st">"Silent"</span></span>
+<span id="cb23-41"><a href="#cb23-41" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb23-42"><a href="#cb23-42" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb23-43"><a href="#cb23-43" aria-hidden="true" tabindex="-1"></a><span class="fu">toc</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>CatBoost training Final Model: 2253.22 sec elapsed</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co">#── evaluate on held-out test set ────────────────────────────</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>pred <span class="ot">&lt;-</span> <span class="fu">catboost.predict</span>(final_model, te_pool)</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>rmse <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">mean</span>((pred <span class="sc">-</span> y_te)<span class="sc">^</span><span class="dv">2</span>))</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Test RMSE:"</span>, <span class="fu">round</span>(rmse, <span class="dv">2</span>), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Test RMSE: 3850.98 </code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="fu">toc</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<section id="actuall-vs.-predicted-sale-prices" class="level2" data-number="5.1">
+<h2 data-number="5.1" class="anchored" data-anchor-id="actuall-vs.-predicted-sale-prices"><span class="header-section-number">5.1</span> Actuall vs.&nbsp;predicted sale prices:</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>plot_df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">Actual    =</span> y_te,</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">Predicted =</span> pred</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_df, <span class="fu">aes</span>(<span class="at">x =</span> Actual, <span class="at">y =</span> Predicted)) <span class="sc">+</span></span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.25</span>) <span class="sc">+</span></span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_abline</span>(<span class="at">slope =</span> <span class="dv">1</span>, <span class="at">intercept =</span> <span class="dv">0</span>,</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>              <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">size =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Predicted vs. Actual Sale Prices"</span>,</span>
+<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">x     =</span> <span class="st">"Actual Sale_Price_Raw"</span>,</span>
+<span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">y     =</span> <span class="st">"Predicted Sale_Price_Raw"</span></span>
+<span id="cb28-14"><a href="#cb28-14" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb28-15"><a href="#cb28-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>Warning: Using `size` aesthetic for lines was deprecated in ggplot2 3.4.0.
+ℹ Please use `linewidth` instead.</code></pre>
+</div>
+<div class="cell-output-display">
+<p><img src="Ensamble_files/figure-html/unnamed-chunk-25-1.png" class="img-fluid" width="672"></p>
+</div>
+</div>
+</section>
+<section id="metrics" class="level2" data-number="5.2">
+<h2 data-number="5.2" class="anchored" data-anchor-id="metrics"><span class="header-section-number">5.2</span> Metrics</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="co"># MAPE (Mean Absolute Percentage Error)</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>mape_val <span class="ot">&lt;-</span> <span class="fu">mape</span>(y_te, pred)</span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>mae_val <span class="ot">&lt;-</span> <span class="fu">mae</span>(y_te, pred)</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="co"># RMSE (Root Mean Squared Error)</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>rmse_val <span class="ot">&lt;-</span> <span class="fu">rmse</span>(y_te, pred)</span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a><span class="co"># R² (Coefficient of Determination)</span></span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>r2_val <span class="ot">&lt;-</span> <span class="fu">R2</span>(pred, y_te)</span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Print</span></span>
+<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"MAPE: %.4f</span><span class="sc">\n</span><span class="st">MAE: %.4f</span><span class="sc">\n</span><span class="st">RMSE: %.4f</span><span class="sc">\n</span><span class="st">R²: %.4f</span><span class="sc">\n</span><span class="st">"</span>, mape_val, mae_val, rmse_val, r2_val))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>MAPE: 0.5008
+MAE: 1297.1749
+RMSE: 3850.9752
+R²: 0.9996</code></pre>
+</div>
+</div>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+window.document.addEventListener("DOMContentLoaded", function (event) {
+  const toggleBodyColorMode = (bsSheetEl) => {
+    const mode = bsSheetEl.getAttribute("data-mode");
+    const bodyEl = window.document.querySelector("body");
+    if (mode === "dark") {
+      bodyEl.classList.add("quarto-dark");
+      bodyEl.classList.remove("quarto-light");
+    } else {
+      bodyEl.classList.add("quarto-light");
+      bodyEl.classList.remove("quarto-dark");
+    }
+  }
+  const toggleBodyColorPrimary = () => {
+    const bsSheetEl = window.document.querySelector("link#quarto-bootstrap");
+    if (bsSheetEl) {
+      toggleBodyColorMode(bsSheetEl);
+    }
+  }
+  toggleBodyColorPrimary();  
+  const icon = "";
+  const anchorJS = new window.AnchorJS();
+  anchorJS.options = {
+    placement: 'right',
+    icon: icon
+  };
+  anchorJS.add('.anchored');
+  const isCodeAnnotation = (el) => {
+    for (const clz of el.classList) {
+      if (clz.startsWith('code-annotation-')) {                     
+        return true;
+      }
+    }
+    return false;
+  }
+  const clipboard = new window.ClipboardJS('.code-copy-button', {
+    text: function(trigger) {
+      const codeEl = trigger.previousElementSibling.cloneNode(true);
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+  });
+  clipboard.on('success', function(e) {
+    // button target
+    const button = e.trigger;
+    // don't keep focus
+    button.blur();
+    // flash "checked"
+    button.classList.add('code-copy-button-checked');
+    var currentTitle = button.getAttribute("title");
+    button.setAttribute("title", "Copied!");
+    let tooltip;
+    if (window.bootstrap) {
+      button.setAttribute("data-bs-toggle", "tooltip");
+      button.setAttribute("data-bs-placement", "left");
+      button.setAttribute("data-bs-title", "Copied!");
+      tooltip = new bootstrap.Tooltip(button, 
+        { trigger: "manual", 
+          customClass: "code-copy-button-tooltip",
+          offset: [0, -8]});
+      tooltip.show();    
+    }
+    setTimeout(function() {
+      if (tooltip) {
+        tooltip.hide();
+        button.removeAttribute("data-bs-title");
+        button.removeAttribute("data-bs-toggle");
+        button.removeAttribute("data-bs-placement");
+      }
+      button.setAttribute("title", currentTitle);
+      button.classList.remove('code-copy-button-checked');
+    }, 1000);
+    // clear code selection
+    e.clearSelection();
+  });
+  function tippyHover(el, contentFn) {
+    const config = {
+      allowHTML: true,
+      content: contentFn,
+      maxWidth: 500,
+      delay: 100,
+      arrow: false,
+      appendTo: function(el) {
+          return el.parentElement;
+      },
+      interactive: true,
+      interactiveBorder: 10,
+      theme: 'quarto',
+      placement: 'bottom-start'
+    };
+    window.tippy(el, config); 
+  }
+  const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+  for (var i=0; i<noterefs.length; i++) {
+    const ref = noterefs[i];
+    tippyHover(ref, function() {
+      // use id or data attribute instead here
+      let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+      try { href = new URL(href).hash; } catch {}
+      const id = href.replace(/^#\/?/, "");
+      const note = window.document.getElementById(id);
+      return note.innerHTML;
+    });
+  }
+      let selectedAnnoteEl;
+      const selectorForAnnotation = ( cell, annotation) => {
+        let cellAttr = 'data-code-cell="' + cell + '"';
+        let lineAttr = 'data-code-annotation="' +  annotation + '"';
+        const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+        return selector;
+      }
+      const selectCodeLines = (annoteEl) => {
+        const doc = window.document;
+        const targetCell = annoteEl.getAttribute("data-target-cell");
+        const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+        const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+        const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+        const lineIds = lines.map((line) => {
+          return targetCell + "-" + line;
+        })
+        let top = null;
+        let height = null;
+        let parent = null;
+        if (lineIds.length > 0) {
+            //compute the position of the single el (top and bottom and make a div)
+            const el = window.document.getElementById(lineIds[0]);
+            top = el.offsetTop;
+            height = el.offsetHeight;
+            parent = el.parentElement.parentElement;
+          if (lineIds.length > 1) {
+            const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+            const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+            height = bottom - top;
+          }
+          if (top !== null && height !== null && parent !== null) {
+            // cook up a div (if necessary) and position it 
+            let div = window.document.getElementById("code-annotation-line-highlight");
+            if (div === null) {
+              div = window.document.createElement("div");
+              div.setAttribute("id", "code-annotation-line-highlight");
+              div.style.position = 'absolute';
+              parent.appendChild(div);
+            }
+            div.style.top = top - 2 + "px";
+            div.style.height = height + 4 + "px";
+            let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+            if (gutterDiv === null) {
+              gutterDiv = window.document.createElement("div");
+              gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+              gutterDiv.style.position = 'absolute';
+              const codeCell = window.document.getElementById(targetCell);
+              const gutter = codeCell.querySelector('.code-annotation-gutter');
+              gutter.appendChild(gutterDiv);
+            }
+            gutterDiv.style.top = top - 2 + "px";
+            gutterDiv.style.height = height + 4 + "px";
+          }
+          selectedAnnoteEl = annoteEl;
+        }
+      };
+      const unselectCodeLines = () => {
+        const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+        elementsIds.forEach((elId) => {
+          const div = window.document.getElementById(elId);
+          if (div) {
+            div.remove();
+          }
+        });
+        selectedAnnoteEl = undefined;
+      };
+      // Attach click handler to the DT
+      const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+      for (const annoteDlNode of annoteDls) {
+        annoteDlNode.addEventListener('click', (event) => {
+          const clickedEl = event.target;
+          if (clickedEl !== selectedAnnoteEl) {
+            unselectCodeLines();
+            const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+            if (activeEl) {
+              activeEl.classList.remove('code-annotation-active');
+            }
+            selectCodeLines(clickedEl);
+            clickedEl.classList.add('code-annotation-active');
+          } else {
+            // Unselect the line
+            unselectCodeLines();
+            clickedEl.classList.remove('code-annotation-active');
+          }
+        });
+      }
+  const findCites = (el) => {
+    const parentEl = el.parentElement;
+    if (parentEl) {
+      const cites = parentEl.dataset.cites;
+      if (cites) {
+        return {
+          el,
+          cites: cites.split(' ')
+        };
+      } else {
+        return findCites(el.parentElement)
+      }
+    } else {
+      return undefined;
+    }
+  };
+  var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+  for (var i=0; i<bibliorefs.length; i++) {
+    const ref = bibliorefs[i];
+    const citeInfo = findCites(ref);
+    if (citeInfo) {
+      tippyHover(citeInfo.el, function() {
+        var popup = window.document.createElement('div');
+        citeInfo.cites.forEach(function(cite) {
+          var citeDiv = window.document.createElement('div');
+          citeDiv.classList.add('hanging-indent');
+          citeDiv.classList.add('csl-entry');
+          var biblioDiv = window.document.getElementById('ref-' + cite);
+          if (biblioDiv) {
+            citeDiv.innerHTML = biblioDiv.innerHTML;
+          }
+          popup.appendChild(citeDiv);
+        });
+        return popup.innerHTML;
+      });
+    }
+  }
+});
+</script>
+</div> <!-- /content -->
+
+
+
+</body></html>
