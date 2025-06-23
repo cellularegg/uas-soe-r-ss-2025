@@ -1,0 +1,1134 @@
+---
+title: "Pierce County Property Analysis: Data Loading"
+subtitle: "Step 2: Staging Data"
+author: "B1_Pierce-House-Price"
+date: "today"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo 
+    code-fold: true
+    code-summary: "Show/Hide Code"
+    df-print: kable # For nice table printing with knitr::kable
+editor: source
+execute:
+  echo: true
+  warning: false   # Suppress warnings globally for now
+  message: false   # Suppress messages globally for now
+  error: true      # Display errors if they occur
+---
+
+# Introduction
+
+This document outlines the first step in our analysis of Pierce County property data: loading all raw data files into a DuckDB in-memory database. Each text file will be loaded into its own table with column names derived from the provided metadata (PDFs). All columns will initially be loaded as `VARCHAR` (text) to ensure robust loading; type conversions will occur during the subsequent cleaning phase.
+
+# Setup and Configuration
+
+## Load Libraries and Functions
+
+First, we load necessary R packages and our custom data loading function.
+
+```{r setup-load-libs-funcs}
+#| label: setup-load-libs-funcs
+
+# Ensure these packages are installed: install.packages(c("DBI", "duckdb", "knitr", "dplyr"))
+library(DBI)
+library(duckdb)
+library(knitr) # For kable()
+library(dplyr) # For glimpse() later
+library(kableExtra)
+
+# Source our custom data loading function
+# The path is relative to the Quarto document's location (reports/)
+source("../../R/00_load_data_functions.R")
+
+```
+
+## Define File Paths and Column Names
+
+Here, we define the locations of our raw data files and the column names for each table. IMPORTANT: You MUST verify and complete the col_names_lists with the correct column names in the correct order for EACH of your files based on your metadata PDFs.
+
+```{r}
+#| label: setup-file-configs
+
+# Base path to the directory where the raw .txt files are stored
+# This path is relative to the project root, assuming the .Rproj is in the root.
+# If running the .qmd directly, ensure this path correctly points to your data/raw folder.
+# For Quarto rendering, it's often best to assume the project root is the working directory.
+# Let's construct paths assuming the Quarto doc is in 'reports/' and data is in 'data/raw/'
+# relative to a common project root.
+project_root_relative_data_path <- "../../data/raw/" # Path from 'reports/' dir to 'data/raw/'
+
+file_paths_list <- list(
+  sale = paste0(project_root_relative_data_path, "sale.txt"),
+  appraisal_account = paste0(project_root_relative_data_path, "appraisal_account.txt"),
+  improvement = paste0(project_root_relative_data_path, "improvement.txt"),
+  improvement_detail = paste0(project_root_relative_data_path, "improvement_detail.txt"),
+  improvement_builtas = paste0(project_root_relative_data_path, "improvement_builtas.txt"),
+  land_attribute = paste0(project_root_relative_data_path, "land_attribute.txt"),
+  seg_merge = paste0(project_root_relative_data_path, "seg_merge.txt"),
+  tax_account = paste0(project_root_relative_data_path, "tax_account.txt"),
+  tax_description = paste0(project_root_relative_data_path, "tax_description.txt")
+)
+
+# --- COLUMN NAMES ---
+# !!! ACTION REQUIRED: Populate these lists accurately for EACH file !!!
+# The order of names MUST match the order of columns in your .txt files.
+# These are placeholders. Refer to your PDF metadata.
+col_names_lists <- list(
+  sale = c(
+    "ETN", "Parcel_Count", "Parcel_Number", "Sale_Date_Raw", "Sale_Price_Raw", 
+    "Deed_Type", "Grantor", "Grantee", "Valid_Invalid_Raw", 
+    "Confirmed_Uncomfirmed_Raw", # Note: "Uncomfirmed" as per PDF
+    "Exclude_Reason", "Improved_Vacant_Raw", "Appraisal_Account_Type"
+  ), 
+  
+  appraisal_account = c(
+    "Parcel_Number", "Appraisal_Account_Type", "Business_Name", "Value_Area_ID", 
+    "Land_Economic_Area", "Buildings", "Group_Account_Number", 
+    "Land_Gross_Acres_Raw", "Land_Net_Acres_Raw", "Land_Gross_Square_Feet_Raw", 
+    "Land_Net_Square_Feet_Raw", "Land_Gross_Front_Feet_Raw", "Land_Width_Raw", 
+    "Land_Depth_Raw", "Submerged_Area_Square_Feet_Raw", "Appraisal_Date_Raw", 
+    "Waterfront_Type", "View_Quality", "Utility_Electric", "Utility_Sewer", 
+    "Utility_Water", "Street_Type", "Latitude_Raw", "Longitude_Raw"
+  ), 
+  
+  improvement = c(
+    "Parcel_Number", "Building_ID", "Property_Type", "Neighborhood", 
+    "Neighborhood_Extension", "Square_Feet_Raw", "Net_Square_Feet_Raw", 
+    "Percent_Complete_Raw", "Condition", "Quality", "Primary_Occupancy_Code_Raw", 
+    "Primary_Occupancy_Description", "Mobile_Home_Serial_Number", 
+    "Mobile_Home_Total_Length_Raw", "Mobile_Home_Make", 
+    "Attic_Finished_Square_Feet_Raw", "Basement_Square_Feet_Raw", 
+    "Basement_Finished_Square_Feet_Raw", "Carport_Square_Feet_Raw", 
+    "Balcony_Square_Feet_Raw", "Porch_Square_Feet_Raw", 
+    "Attached_Garage_Square_Feet_Raw", "Detached_Garage_Square_Feet_Raw", 
+    "Fireplaces_Raw", "Basement_Garage_Door_Raw"
+  ),
+                 
+  improvement_detail = c(
+    "Parcel_Number", "Building_ID", "Detail_Type", "Detail_Description", "Units_Raw"
+  ),
+                        
+  improvement_builtas = c(
+    "Parcel_Number", "Building_ID", "Built_As_Number_Raw", "Built_As_ID_Raw", 
+    "Built_As_Description", "Built_As_Square_Feet_Raw", "HVAC_Code_Raw", 
+    "HVAC_Description", "Exterior", "Interior", "Stories_Raw", "Story_Height_Raw", 
+    "Sprinkler_Square_Feet_Raw", "Roof_Cover", "Bedrooms_Raw", "Bathrooms_Raw", 
+    "Units_Count_Raw", "Class_Code", "Class_Description", "Year_Built_Raw", 
+    "Year_Remodeled_Raw", "Adjusted_Year_Built_Raw", "Physical_Age_Raw", 
+    "Built_As_Length_Raw", "Built_As_Width_Raw", "Mobile_Home_Model"
+  ),
+                         
+  land_attribute = c(
+    "Parcel_Number", "Attribute_Key", "Attribute_Description"
+  ), 
+                    
+  seg_merge = c(
+    "Seg_Merge_Number", "Parent_Child_Indicator", "Parcel_Number", 
+    "Continued_Indicator", "Completed_Date_Raw", "Tax_Year_Raw"
+  ), 
+               
+  tax_account = c(
+    "Parcel_Number", "Account_Type", "Property_Type", "Site_Address", 
+    "Use_Code", "Use_Description", "Tax_Year_Prior_Raw", 
+    "Tax_Code_Area_Prior_Year", "Exemption_Type_Prior_Year", 
+    "Current_Use_Code_Prior_Year", "Land_Value_Prior_Year_Raw", 
+    "Improvement_Value_Prior_Year_Raw", "Total_Market_Value_Prior_Year_Raw", 
+    "Taxable_Value_Prior_Year_Raw", "Tax_Year_Current_Raw", 
+    "Tax_Code_Area_Current_Year", "Exemption_Type_Current_Year", 
+    "Current_Use_Code_Current_Year", "Land_Value_Current_Year_Raw", 
+    "Improvement_Value_Current_Year_Raw", "Total_Market_Value_Current_Year_Raw", 
+    "Taxable_Value_Current_Year_Raw", "Range", "Township", "Section", 
+    "Quarter_Section", "Subdivision_Name", "Located_On_Parcel"
+  ), 
+                 
+  tax_description = c(
+    "Parcel_Number", "Line_Number_Raw", "Tax_Description_Line"
+  )
+)
+
+# Verify all files have column name definitions (basic check)
+if (!all(names(file_paths_list) %in% names(col_names_lists))) {
+  stop("Mismatch between file_paths_list and col_names_lists. Ensure every file has a corresponding column name definition.")
+}
+if (!all(names(col_names_lists) %in% names(file_paths_list))) {
+  stop("Mismatch between col_names_lists and file_paths_list. Ensure every column name definition has a corresponding file.")
+}
+```
+
+
+## Initialize DuckDB Connection
+
+We'll use an in-memory DuckDB database for this session.
+
+```{r}
+#| label: setup-duckdb-connection
+
+con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
+cat("DuckDB in-memory connection established.\n")
+```
+
+# Load Raw Data into DuckDB
+
+Now, we iterate through our configured files and load each one into a separate table in DuckDB using our custom function.
+
+```{r}
+#| label: load-data-to-duckdb
+#| results: 'asis' # Allows cat() HTML output to render directly
+
+cat("### Starting Data Loading Process:\n\n")
+
+loaded_successfully <- c() # To track which tables loaded
+
+for (table_key in names(file_paths_list)) {
+  file_path <- file_paths_list[[table_key]]
+  col_names <- col_names_lists[[table_key]]
+  target_table_name <- paste0(table_key, "_raw_duckdb") # e.g., "sale_raw_duckdb"
+  
+  cat(paste0("Attempting to load: ", basename(file_path), " into table `", target_table_name, "`...\n"))
+  
+  if (is.null(col_names) || length(col_names) == 0) {
+      cat(paste0("<p style='color:red;'><strong>Error:</strong> Column names for '", table_key, "' are not defined or empty. Skipping.</p>\n\n"))
+      loaded_successfully[target_table_name] <- FALSE
+      next
+  }
+  
+  success <- load_pipe_delimited_file_to_duckdb(
+    con = con,
+    file_path = file_path,
+    col_names_vector = col_names,
+    target_table_name = target_table_name
+  )
+  loaded_successfully[target_table_name] <- success
+}
+
+cat("\n### Data Loading Process Complete.\n")
+
+# Summary of loading
+cat("\n#### Loading Summary:\n")
+for(tbl_name in names(loaded_successfully)){
+    status_msg <- if(loaded_successfully[tbl_name]) "Successfully loaded" else "Failed to load or file not found"
+    cat(paste0("- `", tbl_name, "`: ", status_msg, "\n"))
+}
+```
+
+# Preliminary Data Inspection
+
+Let's list the tables in our DuckDB database and look at the first few rows and structure of each loaded table to verify the loading process.
+
+```{r}
+#| label: inspect-loaded-tables
+#| results: 'asis'
+
+cat("\n### Tables in DuckDB:\n")
+loaded_tables_in_db <- DBI::dbListTables(con)
+if (length(loaded_tables_in_db) > 0) {
+  kable(loaded_tables_in_db, col.names = "Table Name", caption = "Tables present in DuckDB") %>% print()
+} else {
+  cat("No tables found in DuckDB. Please check loading logs.\n")
+}
+
+
+cat("\n\n### Preview of Loaded Tables (First 3 Rows and Structure):\n")
+for (table_name_raw in loaded_tables_in_db) {
+  # Only preview tables we attempted to load based on our naming convention
+  if (grepl("_raw_duckdb$", table_name_raw) && isTRUE(loaded_successfully[table_name_raw])) {
+    cat(paste0("\n#### Table: `", table_name_raw, "`\n"))
+    
+    # Get column count from DB
+    db_cols <- DBI::dbListFields(con, table_name_raw)
+    num_db_cols <- length(db_cols)
+    
+    # Get defined column count
+    original_key <- sub("_raw_duckdb$", "", table_name_raw) # e.g. "sale" from "sale_raw_duckdb"
+    num_defined_cols <- length(col_names_lists[[original_key]])
+
+    cat(paste0("*Defined columns: ", num_defined_cols, ", Columns in DB table: ", num_db_cols, "*\n"))
+    if (num_defined_cols != num_db_cols && num_db_cols > 0) {
+         cat(paste0("<p style='color:orange;'><strong>Warning:</strong> Mismatch in column count for `", table_name_raw, 
+                    "`. Defined: ", num_defined_cols, ", Actual in DB: ", num_db_cols, 
+                    ". This could indicate issues with delimiter, quoting, or column name definitions.</p>"))
+    }
+
+    # Preview first 3 rows
+    cat("\n##### First 3 Rows:\n")
+    tryCatch({
+      preview_data <- DBI::dbGetQuery(con, paste0("SELECT * FROM ", table_name_raw, " LIMIT 3"))
+      if (nrow(preview_data) > 0) {
+        kable(preview_data, caption = paste("First 3 rows of", table_name_raw)) %>% 
+          kableExtra::kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), 
+                                    full_width = FALSE,
+                                    font_size = 10) %>% # Smaller font for wide tables
+          print()
+      } else {
+        cat("Table is empty or could not retrieve rows.\n")
+      }
+    }, error = function(e) {
+      cat(paste0("<p style='color:red;'>Error previewing table `", table_name_raw, "`: ", e$message, "</p>\n"))
+    })
+    
+    # Show structure (column names and types from DuckDB's perspective)
+    cat("\n##### Structure (from DuckDB):\n")
+    tryCatch({
+        # DuckDB's PRAGMA table_info('table_name') is good for this
+        structure_info <- DBI::dbGetQuery(con, paste0("PRAGMA table_info('", table_name_raw, "');"))
+        if (nrow(structure_info) > 0) {
+            kable(structure_info %>% select(name, type), caption = paste("Structure of", table_name_raw)) %>% 
+              kableExtra::kable_styling(bootstrap_options = c("condensed"), full_width = FALSE) %>%
+              print()
+        } else {
+            cat("Could not retrieve structure information.\n")
+        }
+    }, error = function(e) {
+      cat(paste0("<p style='color:red;'>Error getting structure for table `", table_name_raw, "`: ", e$message, "</p>\n"))
+    })
+    cat("\n---\n") # Separator
+  }
+}
+```
+
+
+
+
+
+
+# Data Cleaning and Preprocessing
+
+In this section, we will clean each raw table. Column names will generally be kept similar to the raw version but with _Raw suffix removed where appropriate after type conversion.
+
+
+
+```{r} 
+# Helper function to execute cleaning SQL and provide feedback
+execute_cleaning_sql <- function(con, sql_query, cleaned_table_name) {
+  cat(paste0("--- Cleaning to create `", cleaned_table_name, "` ---\n"))
+  success_flag <- FALSE
+  tryCatch({
+    dbExecute(con, sql_query)
+    cat(paste0("SQL executed for `", cleaned_table_name, "`.\n"))
+
+    # VERIFY table existence and get row count
+    if (DBI::dbExistsTable(con, cleaned_table_name)) {
+      row_count <- dbGetQuery(con, paste0("SELECT COUNT(*) FROM ", cleaned_table_name))[[1]]
+      cat(paste0("`", cleaned_table_name, "` table created/replaced. Row count: ", format(row_count, big.mark=","), ".\n"))
+      
+      if (row_count > 0 || grepl("CREATE OR REPLACE TABLE", toupper(sql_query))) { # Allow empty tables if explicitly created
+         success_flag <- TRUE
+      } else {
+         cat(paste0("<p style='color:orange;'><strong>Warning: `", cleaned_table_name, "` was created but is empty.</strong></p>\n"))
+         # Decide if an empty table is an error for you. For now, let's say it's okay if created.
+         success_flag <- TRUE 
+      }
+
+      cat(paste0("\nPreview of `", cleaned_table_name, "` (LIMIT 5):\n"))
+      dbGetQuery(con, paste0("SELECT * FROM ", cleaned_table_name, " LIMIT 5")) %>% 
+        kable(caption = paste("Preview of", cleaned_table_name)) %>% 
+        kable_styling(bootstrap_options = c("striped", "condensed", "responsive"), font_size = 9) %>%
+        print()
+        
+      cat(paste0("\nStructure of `", cleaned_table_name, "`:\n"))
+      dbGetQuery(con, paste0("PRAGMA table_info('", cleaned_table_name, "');")) %>% 
+        select(name, type) %>% 
+        kable(caption = paste("Structure of", cleaned_table_name)) %>%
+        kable_styling(bootstrap_options = c("condensed"), full_width = FALSE) %>%
+        print()
+    } else {
+      cat(paste0("<p style='color:red;'><strong>CRITICAL ERROR: Table `", cleaned_table_name, "` was NOT found after SQL execution.</strong></p>\n"))
+      success_flag <- FALSE
+    }
+    
+  }, error = function(e) {
+    cat(paste0("<p style='color:red;'><strong>Error during SQL for `", cleaned_table_name, "`:</p>\n<pre>", e$message, "</pre>\n"))
+    success_flag <- FALSE
+  })
+  return(success_flag)
+}
+```
+
+
+## Cleaning `sale_raw_duckdb`
+
+```{r clean-sale-table}
+sql_clean_sale <- "
+CREATE OR REPLACE TABLE sale_cleaned_duckdb AS
+SELECT
+    TRIM(ETN) AS ETN,
+    CAST(NULLIF(TRIM(Parcel_Count), '') AS INTEGER) AS Parcel_Count,
+    TRIM(Parcel_Number) AS Parcel_Number,
+    strptime(NULLIF(TRIM(Sale_Date_Raw), ''), '%m/%d/%Y') AS Sale_Date, 
+    CAST(NULLIF(TRIM(Sale_Price_Raw), '') AS DECIMAL(18, 2)) AS Sale_Price,
+    
+    /* Renaming columns to match the final integration query */
+    TRIM(Deed_Type) AS Instrument_Type, 
+    TRIM(Exclude_Reason) AS Sale_Warning_Code,
+    
+    TRIM(Grantor) AS Grantor,
+    TRIM(Grantee) AS Grantee,
+    CASE 
+        WHEN TRIM(Valid_Invalid_Raw) = '1' THEN 'Valid'
+        WHEN TRIM(Valid_Invalid_Raw) = '0' THEN 'Invalid'
+        ELSE NULL 
+    END AS Valid_Invalid,
+    TRIM(Confirmed_Uncomfirmed_Raw) AS Confirmed_Unconfirmed,
+    CASE 
+        WHEN TRIM(Improved_Vacant_Raw) = '1' THEN 'Improved'
+        WHEN TRIM(Improved_Vacant_Raw) = '0' THEN 'Vacant'
+        ELSE NULL 
+    END AS Improved_Vacant,
+    
+    /* Renaming this column to match the final integration query */
+    TRIM(Appraisal_Account_Type) AS Property_Type
+
+FROM sale_raw_duckdb;
+"
+
+cat("Attempting to create sale_cleaned_duckdb...\n")
+dbExecute(con, sql_clean_sale)
+cat("sale_cleaned_duckdb created.\n\n")
+
+# --- Verification Step ---
+cat("Current tables in the database:\n")
+print(dbListTables(con))
+```
+
+
+## Cleaning `appraisal_account_raw_duckdb`
+
+```{r}
+sql_clean_appraisal_account <- "
+CREATE OR REPLACE TABLE appraisal_account_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Appraisal_Account_Type) AS Appraisal_Account_Type,
+    TRIM(Business_Name) AS Business_Name,
+    TRIM(Value_Area_ID) AS Value_Area_ID,
+    TRIM(Land_Economic_Area) AS Land_Economic_Area,
+    CAST(NULLIF(TRIM(Buildings), '') AS INTEGER) AS Buildings,
+    TRIM(Group_Account_Number) AS Group_Account_Number,
+    CAST(NULLIF(TRIM(Land_Gross_Acres_Raw), '') AS DECIMAL(18, 4)) AS Land_Gross_Acres,
+    CAST(NULLIF(TRIM(Land_Net_Acres_Raw), '') AS DECIMAL(18, 4)) AS Land_Net_Acres,
+    CAST(NULLIF(TRIM(Land_Gross_Square_Feet_Raw), '') AS BIGINT) AS Land_Gross_Square_Feet,
+    CAST(NULLIF(TRIM(Land_Net_Square_Feet_Raw), '') AS BIGINT) AS Land_Net_Square_Feet,
+    CAST(NULLIF(TRIM(Land_Gross_Front_Feet_Raw), '') AS DECIMAL(10, 2)) AS Land_Gross_Front_Feet,
+    CAST(NULLIF(TRIM(Land_Width_Raw), '') AS DECIMAL(10, 2)) AS Land_Width,
+    CAST(NULLIF(TRIM(Land_Depth_Raw), '') AS DECIMAL(10, 2)) AS Land_Depth,
+    CAST(NULLIF(TRIM(Submerged_Area_Square_Feet_Raw), '') AS BIGINT) AS Submerged_Area_Square_Feet,
+    strptime(NULLIF(TRIM(Appraisal_Date_Raw), ''), '%m/%d/%Y') AS Appraisal_Date,
+    TRIM(Waterfront_Type) AS Waterfront_Type,
+    TRIM(View_Quality) AS View_Quality,
+    TRIM(Utility_Electric) AS Utility_Electric,
+    TRIM(Utility_Sewer) AS Utility_Sewer,
+    TRIM(Utility_Water) AS Utility_Water,
+    TRIM(Street_Type) AS Street_Type,
+    CAST(NULLIF(TRIM(Latitude_Raw), '') AS DECIMAL(10, 7)) AS Latitude,
+    CAST(NULLIF(TRIM(Longitude_Raw), '') AS DECIMAL(10, 7)) AS Longitude
+FROM appraisal_account_raw_duckdb;
+"
+execute_cleaning_sql(con, sql_clean_appraisal_account, "appraisal_account_cleaned_duckdb")
+```
+
+## Cleaning `improvement_raw_duckdb`
+```{r}
+sql_clean_improvement <- "
+CREATE OR REPLACE TABLE improvement_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Building_ID) AS Building_ID, -- Usually text, e.g., '1', 'A'
+    TRIM(Property_Type) AS Property_Type,
+    TRIM(Neighborhood) AS Neighborhood,
+    TRIM(Neighborhood_Extension) AS Neighborhood_Extension,
+    CAST(NULLIF(TRIM(Square_Feet_Raw), '') AS INTEGER) AS Square_Feet,
+    CAST(NULLIF(TRIM(Net_Square_Feet_Raw), '') AS INTEGER) AS Net_Square_Feet,
+    CAST(NULLIF(TRIM(Percent_Complete_Raw), '') AS DECIMAL(5, 2)) AS Percent_Complete,
+    TRIM(Condition) AS Condition, -- This is likely a code, keep as text for now
+    TRIM(Quality) AS Quality,     -- This is likely a code, keep as text for now
+    TRIM(Primary_Occupancy_Code_Raw) AS Primary_Occupancy_Code,
+    TRIM(Primary_Occupancy_Description) AS Primary_Occupancy_Description,
+    TRIM(Mobile_Home_Serial_Number) AS Mobile_Home_Serial_Number,
+    CAST(NULLIF(TRIM(Mobile_Home_Total_Length_Raw), '') AS INTEGER) AS Mobile_Home_Total_Length,
+    TRIM(Mobile_Home_Make) AS Mobile_Home_Make,
+    CAST(NULLIF(TRIM(Attic_Finished_Square_Feet_Raw), '') AS INTEGER) AS Attic_Finished_Square_Feet,
+    CAST(NULLIF(TRIM(Basement_Square_Feet_Raw), '') AS INTEGER) AS Basement_Square_Feet,
+    CAST(NULLIF(TRIM(Basement_Finished_Square_Feet_Raw), '') AS INTEGER) AS Basement_Finished_Square_Feet,
+    CAST(NULLIF(TRIM(Carport_Square_Feet_Raw), '') AS INTEGER) AS Carport_Square_Feet,
+    CAST(NULLIF(TRIM(Balcony_Square_Feet_Raw), '') AS INTEGER) AS Balcony_Square_Feet,
+    CAST(NULLIF(TRIM(Porch_Square_Feet_Raw), '') AS INTEGER) AS Porch_Square_Feet,
+    CAST(NULLIF(TRIM(Attached_Garage_Square_Feet_Raw), '') AS INTEGER) AS Attached_Garage_Square_Feet,
+    CAST(NULLIF(TRIM(Detached_Garage_Square_Feet_Raw), '') AS INTEGER) AS Detached_Garage_Square_Feet,
+    CAST(NULLIF(TRIM(Fireplaces_Raw), '') AS INTEGER) AS Fireplaces,
+    CAST(NULLIF(TRIM(Basement_Garage_Door_Raw), '') AS INTEGER) AS Basement_Garage_Doors -- Assuming count
+FROM improvement_raw_duckdb;
+"
+execute_cleaning_sql(con, sql_clean_improvement, "improvement_cleaned_duckdb")
+```
+
+## Cleaning `improvement_detail_raw_duckdb`
+
+```{r}
+sql_clean_improvement_detail <- "
+CREATE OR REPLACE TABLE improvement_detail_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Building_ID) AS Building_ID,
+    TRIM(Detail_Type) AS Detail_Type,
+    TRIM(Detail_Description) AS Detail_Description,
+    CAST(NULLIF(TRIM(Units_Raw), '') AS DECIMAL(10, 2)) AS Units -- Or INTEGER if always whole numbers
+FROM improvement_detail_raw_duckdb;
+"
+execute_cleaning_sql(con, sql_clean_improvement_detail, "improvement_detail_cleaned_duckdb")
+```
+
+## Cleaning `improvement_builtas_raw_duckdb`
+
+```{r}
+# --- Clean improvement_builtas_raw_duckdb ---
+# (This chunk should exist in your QMD's Section 5)
+
+# Define the SQL for cleaning improvement_builtas
+sql_clean_improvement_builtas <- "
+CREATE OR REPLACE TABLE improvement_builtas_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Building_ID) AS Building_ID,
+    TRIM(Built_As_Number_Raw) AS Built_As_Number,
+    TRIM(Built_As_ID_Raw) AS Built_As_ID,
+    TRIM(Built_As_Description) AS Built_As_Description,
+    CAST(NULLIF(TRIM(Built_As_Square_Feet_Raw), '') AS INTEGER) AS Built_As_Square_Feet,
+    TRIM(HVAC_Code_Raw) AS HVAC_Code,
+    TRIM(HVAC_Description) AS HVAC_Description,
+    TRIM(Exterior) AS Exterior,
+    TRIM(Interior) AS Interior,
+    TRY_CAST(NULLIF(TRIM(Stories_Raw), '') AS DECIMAL(4, 1)) AS Stories, -- Using TRY_CAST
+    CAST(NULLIF(TRIM(Story_Height_Raw), '') AS DECIMAL(5, 2)) AS Story_Height,
+    CAST(NULLIF(TRIM(Sprinkler_Square_Feet_Raw), '') AS INTEGER) AS Sprinkler_Square_Feet,
+    TRIM(Roof_Cover) AS Roof_Cover,
+    CAST(NULLIF(TRIM(Bedrooms_Raw), '') AS INTEGER) AS Bedrooms,
+    CAST(NULLIF(TRIM(Bathrooms_Raw), '') AS DECIMAL(3, 1)) AS Bathrooms,
+    CAST(NULLIF(TRIM(Units_Count_Raw), '') AS INTEGER) AS Units_Count,
+    TRIM(Class_Code) AS Class_Code,
+    TRIM(Class_Description) AS Class_Description,
+    CAST(NULLIF(TRIM(Year_Built_Raw), '') AS INTEGER) AS Year_Built,
+    CAST(NULLIF(TRIM(Year_Remodeled_Raw), '') AS INTEGER) AS Year_Remodeled,
+    CAST(NULLIF(TRIM(Adjusted_Year_Built_Raw), '') AS INTEGER) AS Adjusted_Year_Built,
+    CAST(NULLIF(TRIM(Physical_Age_Raw), '') AS INTEGER) AS Physical_Age,
+    CAST(NULLIF(TRIM(Built_As_Length_Raw), '') AS DECIMAL(10, 2)) AS Built_As_Length,
+    CAST(NULLIF(TRIM(Built_As_Width_Raw), '') AS DECIMAL(10, 2)) AS Built_As_Width,
+    TRIM(Mobile_Home_Model) AS Mobile_Home_Model
+FROM improvement_builtas_raw_duckdb;
+"
+
+# Initialize a list to store the status of each cleaning operation
+# THIS CHUNK IS NEW OR NEEDS TO BE PRESENT AND RUN FIRST IN SECTION 5
+cleaning_status <- list()
+
+# Execute the cleaning SQL for improvement_builtas
+# **THIS CALL TO THE HELPER FUNCTION IS CRUCIAL**
+cleaning_status[['improvement_builtas']] <- execute_cleaning_sql(
+  con = con, 
+  sql_query = sql_clean_improvement_builtas, 
+  cleaned_table_name = "improvement_builtas_cleaned_duckdb"
+)
+```
+
+
+
+## Cleaning `land_attribute_raw_duckdb`
+
+```{r}
+sql_clean_land_attribute <- "
+CREATE OR REPLACE TABLE land_attribute_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Attribute_Key) AS Attribute_Key,
+    TRIM(Attribute_Description) AS Attribute_Description
+FROM land_attribute_raw_duckdb;
+"
+execute_cleaning_sql(con, sql_clean_land_attribute, "land_attribute_cleaned_duckdb")
+```
+
+
+## Cleaning `seg_merge_raw_duckdb`
+
+```{r}
+# --- Clean seg_merge_raw_duckdb ---
+
+# Define the SQL for cleaning seg_merge
+sql_clean_seg_merge <- "
+CREATE OR REPLACE TABLE seg_merge_cleaned_duckdb AS
+SELECT
+    TRIM(Seg_Merge_Number) AS Seg_Merge_Number,
+    TRIM(Parent_Child_Indicator) AS Parent_Child_Indicator,
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Continued_Indicator) AS Continued_Indicator,
+    strptime(NULLIF(TRIM(Completed_Date_Raw), ''), '%Y-%m-%d') AS Completed_Date, -- Using YYYY-MM-DD format
+    CAST(NULLIF(TRIM(Tax_Year_Raw), '') AS INTEGER) AS Tax_Year
+FROM seg_merge_raw_duckdb;
+"
+
+# Execute the cleaning SQL for seg_merge
+# **THIS CALL TO THE HELPER FUNCTION IS CRUCIAL**
+cleaning_status[['seg_merge']] <- execute_cleaning_sql(
+  con = con,
+  sql_query = sql_clean_seg_merge,
+  cleaned_table_name = "seg_merge_cleaned_duckdb"
+)
+```
+
+
+## Cleaning `tax_account_raw_duckdb`
+
+```{r}
+sql_clean_tax_account <- "
+CREATE OR REPLACE TABLE tax_account_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    TRIM(Account_Type) AS Account_Type,
+    TRIM(Property_Type) AS Property_Type,
+    TRIM(Site_Address) AS Site_Address,
+    TRIM(Use_Code) AS Use_Code,
+    TRIM(Use_Description) AS Use_Description,
+    CAST(NULLIF(TRIM(Tax_Year_Prior_Raw), '') AS INTEGER) AS Tax_Year_Prior,
+    TRIM(Tax_Code_Area_Prior_Year) AS Tax_Code_Area_Prior_Year,
+    TRIM(Exemption_Type_Prior_Year) AS Exemption_Type_Prior_Year,
+    TRIM(Current_Use_Code_Prior_Year) AS Current_Use_Code_Prior_Year,
+    CAST(NULLIF(TRIM(Land_Value_Prior_Year_Raw), '') AS DECIMAL(18, 2)) AS Land_Value_Prior_Year,
+    CAST(NULLIF(TRIM(Improvement_Value_Prior_Year_Raw), '') AS DECIMAL(18, 2)) AS Improvement_Value_Prior_Year,
+    CAST(NULLIF(TRIM(Total_Market_Value_Prior_Year_Raw), '') AS DECIMAL(18, 2)) AS Total_Market_Value_Prior_Year,
+    CAST(NULLIF(TRIM(Taxable_Value_Prior_Year_Raw), '') AS DECIMAL(18, 2)) AS Taxable_Value_Prior_Year,
+    CAST(NULLIF(TRIM(Tax_Year_Current_Raw), '') AS INTEGER) AS Tax_Year_Current,
+    TRIM(Tax_Code_Area_Current_Year) AS Tax_Code_Area_Current_Year,
+    TRIM(Exemption_Type_Current_Year) AS Exemption_Type_Current_Year,
+    TRIM(Current_Use_Code_Current_Year) AS Current_Use_Code_Current_Year,
+    CAST(NULLIF(TRIM(Land_Value_Current_Year_Raw), '') AS DECIMAL(18, 2)) AS Land_Value_Current_Year,
+    CAST(NULLIF(TRIM(Improvement_Value_Current_Year_Raw), '') AS DECIMAL(18, 2)) AS Improvement_Value_Current_Year,
+    CAST(NULLIF(TRIM(Total_Market_Value_Current_Year_Raw), '') AS DECIMAL(18, 2)) AS Total_Market_Value_Current_Year,
+    CAST(NULLIF(TRIM(Taxable_Value_Current_Year_Raw), '') AS DECIMAL(18, 2)) AS Taxable_Value_Current_Year,
+    TRIM(Range) AS Range,
+    TRIM(Township) AS Township,
+    TRIM(Section) AS Section,
+    TRIM(Quarter_Section) AS Quarter_Section,
+    TRIM(Subdivision_Name) AS Subdivision_Name,
+    TRIM(Located_On_Parcel) AS Located_On_Parcel
+FROM tax_account_raw_duckdb;
+"
+execute_cleaning_sql(con, sql_clean_tax_account, "tax_account_cleaned_duckdb")
+```
+
+
+## Cleaning `tax_description_raw_duckdb`
+
+```{r}
+sql_clean_tax_description <- "
+CREATE OR REPLACE TABLE tax_description_cleaned_duckdb AS
+SELECT
+    TRIM(Parcel_Number) AS Parcel_Number,
+    CAST(NULLIF(TRIM(Line_Number_Raw), '') AS INTEGER) AS Line_Number,
+    TRIM(Tax_Description_Line) AS Tax_Description_Line
+FROM tax_description_raw_duckdb;
+"
+execute_cleaning_sql(con, sql_clean_tax_description, "tax_description_cleaned_duckdb")
+```
+
+
+# Data Integration
+
+Now we join the cleaned tables. This is a complex step. We'll start with sale_cleaned_duckdb and LEFT JOIN other tables.
+Be mindful of 1-to-many relationships which can duplicate sale records if not handled (e.g., by aggregation prior to join, or by selecting distinct/primary records).
+For this example, we perform direct joins.
+
+```{r}
+# ---------------------------------------------------------------------------
+# Data Integration (Revised for Aggregation)
+# ---------------------------------------------------------------------------
+
+# Ensure connection 'con' is active
+
+cat("--- Starting Data Integration with Aggregation ---\n")
+
+# --- 1. Appraisal Account Summary (Likely already 1-to-1 or needs specific logic) ---
+# For now, let's assume appraisal_account_cleaned_duckdb is mostly 1-to-1 with Parcel_Number
+# or you'll select specific fields. If it can have multiple rows per parcel, aggregation is needed.
+# Example: Taking all fields, assuming it's effectively a 1-to-1 join for relevant data.
+# If not, you'd GROUP BY Parcel_Number and pick/aggregate fields.
+sql_parcel_appraisal_summary <- "
+CREATE OR REPLACE TABLE parcel_appraisal_summary_duckdb AS
+SELECT 
+    Parcel_Number,
+    FIRST(Appraisal_Account_Type) AS Appraisal_Account_Type_Summary, 
+    MAX(Appraisal_Date) AS Latest_Appraisal_Date,
+    MAX(Land_Net_Acres) AS Max_Land_Net_Acres,
+    MAX(Land_Net_Square_Feet) AS Max_Land_Net_SqFt,
+    FIRST(Waterfront_Type) AS Waterfront_Type_Summary,
+    FIRST(View_Quality) AS View_Quality_Summary,
+    FIRST(Street_Type) AS Street_Type_Summary,
+    AVG(Latitude) AS Avg_Latitude,
+    AVG(Longitude) AS Avg_Longitude
+
+
+FROM appraisal_account_cleaned_duckdb
+GROUP BY Parcel_Number;
+"
+cat("Attempting to create parcel_appraisal_summary_duckdb...\n")
+dbExecute(con, sql_parcel_appraisal_summary)
+cat("parcel_appraisal_summary_duckdb created.\n\n")
+
+
+# --- 2. Tax Account Summary (Similar to Appraisal) ---
+cat("--- Schema for tax_account_cleaned_duckdb (for reference, already known) ---\n")
+# tax_schema <- dbGetQuery(con, "PRAGMA table_info('tax_account_cleaned_duckdb');") # We have this
+# print(tax_schema) # Or kable(tax_schema)
+cat("--- Using known schema for tax_account_cleaned_duckdb ---\n\n")
+
+sql_parcel_tax_summary <- "
+CREATE OR REPLACE TABLE parcel_tax_summary_duckdb AS
+SELECT
+    Parcel_Number,
+    MAX(Tax_Year_Current) AS Tax_Summary_Tax_Year, 
+    SUM(Taxable_Value_Current_Year) AS Tax_Summary_Taxable_Value, 
+    SUM(Land_Value_Current_Year) AS Tax_Summary_Land_Value, 
+    SUM(Improvement_Value_Current_Year) AS Tax_Summary_Improvement_Value, 
+    SUM(Total_Market_Value_Current_Year) AS Tax_Summary_Total_Market_Value, 
+    FIRST(Tax_Code_Area_Current_Year) AS Tax_Summary_Tax_Code_Area,
+    FIRST(Use_Code) AS Tax_Summary_Use_Code, 
+    FIRST(Use_Description) AS Tax_Summary_Use_Description 
+FROM tax_account_cleaned_duckdb
+GROUP BY Parcel_Number;
+"
+cat("Attempting to create parcel_tax_summary_duckdb...\n")
+dbExecute(con, sql_parcel_tax_summary)
+cat("parcel_tax_summary_duckdb created.\n\n")
+
+
+# --- 3. Improvement Detail Summary (Pivoting/Aggregating Details) ---
+# This is where we handle the one-to-many from improvement_detail
+# We want to create features at the Building level first.
+# This example assumes Detail_Codes like 'SQFT', 'YRBLT', 'RMS' etc.
+# You'll need to adapt Detail_Code and Value_Column to your actual column names
+# in improvement_detail_cleaned_duckdb.
+sql_building_detail_summary <- "
+CREATE OR REPLACE TABLE building_detail_summary_duckdb AS
+SELECT
+    Parcel_Number,
+    Building_ID,
+
+    /* --- Bathroom Features --- */
+    SUM(CASE 
+        WHEN Detail_Description = 'Bath 2 Fixture' THEN Units /* Assuming Units = count */
+        ELSE 0 
+    END) AS Addon_Num_2FixtureBaths,
+    SUM(CASE 
+        WHEN Detail_Description = 'Bath 3 Fixture' THEN Units /* Assuming Units = count */
+        ELSE 0 
+    END) AS Addon_Num_3FixtureBaths,
+    /* ... Add cases for Bath 4, 5, 6 Fixture ... */
+    SUM(CASE 
+        WHEN Detail_Description = 'Extra Fixtures' THEN Units /* Assuming Units = count */
+        ELSE 0 
+    END) AS Addon_Num_ExtraFixtures,
+
+    /* --- Garage/Carport Square Footage --- */
+    SUM(CASE 
+        WHEN Detail_Description = 'Carport D Cls AV SF' THEN Units
+        WHEN Detail_Description = 'Garage C Cls AV SF' THEN Units
+        WHEN Detail_Description = 'Garage D Cls AV SF' THEN Units
+        /* ... Add ALL other descriptions that represent garage/carport SF ... */
+        ELSE 0 
+    END) AS Addon_GarageCarport_SqFt,
+
+    /* --- Garage/Carport Unit Count (if different from SF) --- */
+    SUM(CASE 
+        WHEN Detail_Description = 'Carport D Cls AV Unit' THEN Units
+        WHEN Detail_Description = 'Garage C Cls AV Unit' THEN Units
+        /* ... Add ALL other descriptions that represent garage/carport count ... */
+        ELSE 0 
+    END) AS Addon_Num_GarageCarportUnits,
+    
+    /* --- Fireplace Count --- */
+    SUM(CASE
+        WHEN Detail_Description = 'Fireplace Single' THEN Units /* Assuming Units = count of single FPs */
+        WHEN Detail_Description = 'Fireplace Double' THEN Units /* Assuming Units = count of double FPs, or Units*2 if Units=1 for a double */
+        ELSE 0
+    END) AS Addon_Num_Fireplaces,
+
+    /* --- Deck Square Footage (Example - verify Units meaning) --- */
+    SUM(CASE
+        WHEN Detail_Description = 'Cvrd Wood Deck' THEN Units 
+        WHEN Detail_Description = 'Cvrd Wood Deck Avg Q' THEN Units
+        /* ... Add ALL other descriptions for deck SF ... */
+        ELSE 0
+    END) AS Addon_Deck_SqFt,
+    
+    /* --- Pool Flag --- */
+    MAX(CASE
+        WHEN Detail_Description LIKE 'Swimming Pool%' THEN 1
+        WHEN Detail_Description LIKE 'Swim Pl Com Conc%' THEN 1
+        WHEN Detail_Description = 'Hot Tub/Spa Average' THEN 1 /* Or treat spa separately */
+        /* ... Add other pool/spa related descriptions ... */
+        ELSE 0
+    END) AS Addon_Has_PoolOrSpa_Flag
+
+    /* 
+    CONTINUE ADDING MORE CONCEPTUAL FEATURES BASED ON YOUR SPREADSHEET ANALYSIS
+    - Finished Attic SqFt
+    - Basement SqFt / Basement Type Flags
+    - Sheds / Outbuildings (SqFt or Count)
+    - Fencing (Type or Length if Units provides it)
+    - Docks (Type or Flag)
+    - Paving (Asphalt/Concrete SqFt)
+    - etc.
+    */
+
+FROM improvement_detail_cleaned_duckdb
+GROUP BY Parcel_Number, Building_ID;
+"
+cat("Attempting to create building_detail_summary_duckdb...\n")
+dbExecute(con, sql_building_detail_summary)
+cat("building_detail_summary_duckdb created.\n\n")
+
+
+# --- 4. Parcel Improvement Summary (Aggregating Buildings to Parcel Level) ---
+sql_parcel_improvement_summary <- "
+CREATE OR REPLACE TABLE parcel_improvement_summary_duckdb AS
+SELECT
+    imp.Parcel_Number,
+
+    /* --- Aggregations from the MAIN 'improvement' table (imp) --- */
+    COUNT(DISTINCT imp.Building_ID) AS Num_Buildings,
+    SUM(imp.Square_Feet) AS Total_Building_SqFt,
+    SUM(imp.Net_Square_Feet) AS Total_Net_SqFt,
+    SUM(imp.Attached_Garage_Square_Feet) AS Total_Attached_Garage_SqFt,
+    SUM(imp.Fireplaces) AS Total_Fireplaces,
+    FIRST(imp.Quality) AS Main_Building_Quality,
+    FIRST(imp.Neighborhood) AS Neighborhood_Summary,
+    
+    /* --- Condition flags --- */
+    SUM(CASE WHEN imp.Condition = 'Good' THEN 1 ELSE 0 END) AS Num_Buildings_Good_Condition,
+    SUM(CASE WHEN imp.Condition = 'Average' THEN 1 ELSE 0 END) AS Num_Buildings_Avg_Condition,
+    
+    /* --- Modeling Features from the 'improvement_builtas' table (ib) --- */
+    SUM(ib.Bedrooms) AS Total_Bedrooms,
+    SUM(ib.Bathrooms) AS Total_Bathrooms,
+    SUM(ib.Stories) AS Total_Stories,
+    
+    /* --- Aggregations from the 'improvement_detail' add-on summary (bds) --- */
+    SUM(bds.Addon_Num_2FixtureBaths) AS Total_Addon_Num_2FixtureBaths,
+    SUM(bds.Addon_Num_3FixtureBaths) AS Total_Addon_Num_3FixtureBaths,
+    
+    /* --- THIS IS THE CORRECTED LINE --- */
+    SUM(bds.Addon_Deck_SqFt) AS Total_Addon_Deck_SqFt,
+    /* --- END OF CORRECTION --- */
+
+    MAX(bds.Addon_Has_PoolOrSpa_Flag) AS Parcel_Has_PoolOrSpa_Flag
+
+FROM improvement_cleaned_duckdb imp
+LEFT JOIN building_detail_summary_duckdb bds 
+    ON imp.Parcel_Number = bds.Parcel_Number AND imp.Building_ID = bds.Building_ID
+LEFT JOIN improvement_builtas_cleaned_duckdb ib
+    ON imp.Parcel_Number = ib.Parcel_Number AND imp.Building_ID = ib.Building_ID
+GROUP BY imp.Parcel_Number;
+"
+
+cat("Attempting to create parcel_improvement_summary_duckdb...\n")
+dbExecute(con, sql_parcel_improvement_summary)
+cat("parcel_improvement_summary_duckdb created.\n\n")
+
+# --- 5. Land Attribute Summary ---
+# This will depend heavily on what's in land_attribute_cleaned_duckdb
+# Example: counting features or summing areas
+# This query pivots the land attribute data, parsing complex strings like the 'View' description
+# into multiple feature columns.
+
+sql_parcel_land_summary <- "
+CREATE OR REPLACE TABLE parcel_land_summary_duckdb AS
+SELECT
+    Parcel_Number,
+
+    /* --- Pivoting Residential View --- */
+    /* We use MAX() because we assume one primary view per parcel. */
+    /* If multiple views exist, this will take the one that comes last alphabetically. */
+    MAX(CASE 
+        WHEN Attribute_Key = 'R VIEW' THEN 
+            -- Extract the View Type (e.g., 'SALT', 'LAKE', 'TERRITORIAL')
+            regexp_extract(Attribute_Description, '^([A-Z\\s]+)', 1)
+        ELSE NULL 
+    END) AS View_Type,
+
+    MAX(CASE 
+        WHEN Attribute_Key = 'R VIEW' THEN 
+            -- Extract the numeric View Score
+            CAST(regexp_extract(Attribute_Description, '(\\d+)', 1) AS INTEGER)
+        ELSE NULL 
+    END) AS View_Score,
+
+    MAX(CASE 
+        WHEN Attribute_Key = 'R VIEW' THEN 
+            -- Extract the View Quality text (e.g., 'GOOD+', 'LIM-')
+            regexp_extract(Attribute_Description, '\\d+\\s(.*)$', 1)
+        ELSE NULL 
+    END) AS View_Quality,
+
+    /* --- Pivoting Other Residential & Commercial Attributes --- */
+    MAX(CASE 
+        WHEN Attribute_Key = 'R AMENITIES' THEN Attribute_Description
+        ELSE NULL 
+    END) AS Residential_Amenity,
+
+    MAX(CASE 
+        WHEN Attribute_Key = 'C ZONING' THEN Attribute_Description
+        ELSE NULL 
+    END) AS Commercial_Zoning,
+    
+    MAX(CASE 
+        WHEN Attribute_Key = 'R WATERFRONT' THEN Attribute_Description
+        ELSE NULL 
+    END) AS Residential_Waterfront_Description,
+    
+    MAX(CASE 
+        WHEN Attribute_Key = 'C WATERFRONT' THEN Attribute_Description
+        ELSE NULL 
+    END) AS Commercial_Waterfront_Description,
+    
+    /* 
+    We are intentionally IGNORING 'R SIZE' as it does not contain a numeric size.
+    We will get the parcel size from another table in the final integration step.
+    */
+    
+    /* You can add more MAX(CASE...) statements here for other keys like: */
+    /* 'R FUNCTIONAL', 'C ECONOMIC', etc., if you want them as features. */
+    MAX(CASE 
+        WHEN Attribute_Key = 'R FUNCTIONAL' THEN Attribute_Description
+        ELSE NULL 
+    END) AS Residential_Functional_Desc,
+    
+    MAX(CASE 
+        WHEN Attribute_Key = 'C FUNCTIONAL' THEN Attribute_Description
+        ELSE NULL 
+    END) AS Commercial_Functional_Desc
+
+
+FROM land_attribute_cleaned_duckdb
+GROUP BY Parcel_Number;
+"
+cat("Attempting to create parcel_land_summary_duckdb...\n")
+dbExecute(con, sql_parcel_land_summary)
+cat("parcel_land_summary_duckdb created.\n\n")
+
+
+# --- 6. Segment Merge Summary (Corrected based on Actual Schema) ---
+
+# This query uses the real column names from seg_merge_cleaned_duckdb.
+# Since there is no 'Seg_Desc' column, we will instead count the number of
+# unique merge/split events and find the date of the most recent event.
+
+sql_parcel_segment_summary <- "
+CREATE OR REPLACE TABLE parcel_segment_summary_duckdb AS
+SELECT
+    Parcel_Number,
+    
+    -- Count the number of unique merge/split events for the parcel
+    COUNT(DISTINCT Seg_Merge_Number) AS Num_Merge_Events,
+    
+    -- Find the date of the most recent merge/split event
+    MAX(Completed_Date) AS Latest_Merge_Event_Date
+
+FROM seg_merge_cleaned_duckdb
+GROUP BY Parcel_Number;
+"
+
+cat("Attempting to create parcel_segment_summary_duckdb...\n")
+dbExecute(con, sql_parcel_segment_summary)
+cat("parcel_segment_summary_duckdb created successfully.\n\n")
+
+
+# --- Verification Step ---
+cat("--- Schema for parcel_segment_summary_duckdb ---\n")
+segment_summary_schema <- dbGetQuery(con, "PRAGMA table_info('parcel_segment_summary_duckdb');")
+kable(segment_summary_schema) %>% kable_styling(bootstrap_options = "condensed", font_size = 9) %>% print()
+cat("--- End Schema ---\n\n")
+
+
+# --- 7. Final Integration (Corrected and Robust Multi-Step Version) ---
+# --- Step 7.1: Create a view of the filtered sales data ---
+cat("Step 7.1: Creating view for filtered sales...\n")
+dbExecute(con, "
+  CREATE OR REPLACE VIEW v_final_sales_filtered AS
+  SELECT *
+  FROM sale_cleaned_duckdb
+  WHERE
+    Valid_Invalid = 'Valid' AND 
+    Improved_Vacant = 'Improved' AND
+    Sale_Price > 1000;
+")
+cat("Step 7.1 finished.\n\n")
+
+
+# --- Step 7.2: Join the appraisal summary ---
+cat("Step 7.2: Joining appraisal summary...\n")
+dbExecute(con, "
+  CREATE OR REPLACE VIEW v_final_joined_appraisal AS
+  SELECT
+    s.*,
+    pas.Appraisal_Account_Type_Summary,
+    pas.Latest_Appraisal_Date,
+    pas.Max_Land_Net_Acres,
+    pas.Max_Land_Net_SqFt,
+    pas.Waterfront_Type_Summary,
+    pas.View_Quality_Summary,
+    pas.Street_Type_Summary,
+    pas.Avg_Latitude,
+    pas.Avg_Longitude
+  FROM v_final_sales_filtered s
+  LEFT JOIN parcel_appraisal_summary_duckdb pas ON s.Parcel_Number = pas.Parcel_Number;
+")
+cat("Step 7.2 finished.\n\n")
+
+
+# --- Step 7.3: Join the tax summary ---
+cat("Step 7.3: Joining tax summary...\n")
+dbExecute(con, "
+  CREATE OR REPLACE VIEW v_final_joined_tax AS
+  SELECT
+    s.*,
+    pts.Tax_Summary_Tax_Year,
+    pts.Tax_Summary_Taxable_Value,
+    pts.Tax_Summary_Land_Value,
+    pts.Tax_Summary_Improvement_Value
+  FROM v_final_joined_appraisal s
+  LEFT JOIN parcel_tax_summary_duckdb pts ON s.Parcel_Number = pts.Parcel_Number;
+")
+cat("Step 7.3 finished.\n\n")
+
+
+# --- Step 7.4: Join the improvement summary ---
+dbExecute(con, "
+  CREATE OR REPLACE VIEW v_final_joined_improvements AS
+  SELECT
+    s.*,
+    pis.Num_Buildings,
+    pis.Total_Building_SqFt,
+    pis.Total_Net_SqFt,
+    pis.Total_Attached_Garage_SqFt,
+    pis.Total_Fireplaces,
+    pis.Num_Buildings_Good_Condition,
+    pis.Num_Buildings_Avg_Condition,
+    pis.Total_Addon_Num_2FixtureBaths,
+    pis.Total_Addon_Num_3FixtureBaths,
+    pis.Total_Addon_Deck_SqFt,
+    pis.Parcel_Has_PoolOrSpa_Flag,
+
+    /* --- ADDING THE NEW MODELING COLUMNS TO THE FINAL TABLE --- */
+    pis.Total_Bedrooms,
+    pis.Total_Bathrooms,
+    pis.Total_Stories,
+    pis.Main_Building_Quality,
+    pis.Neighborhood_Summary
+    /* --- END ADDED COLUMNS --- */
+
+  FROM v_final_joined_tax s
+  LEFT JOIN parcel_improvement_summary_duckdb pis ON s.Parcel_Number = pis.Parcel_Number;
+")
+cat("Step 7.4 finished.\n\n")
+
+
+# --- Step 7.5: Join the land summary ---
+cat("Step 7.5: Joining land summary...\n")
+dbExecute(con, "
+  CREATE OR REPLACE VIEW v_final_joined_land AS
+  SELECT
+    s.*,
+    pls.View_Type,
+    pls.View_Score,
+    pls.View_Quality,
+    pls.Residential_Amenity,
+    pls.Commercial_Zoning,
+    pls.Residential_Waterfront_Description
+  FROM v_final_joined_improvements s
+  LEFT JOIN parcel_land_summary_duckdb pls ON s.Parcel_Number = pls.Parcel_Number;
+")
+cat("Step 7.5 finished.\n\n")
+
+
+# --- Step 7.6: Join the segment summary ---
+cat("Step 7.6: Joining segment summary...\n")
+dbExecute(con, "
+  CREATE OR REPLACE VIEW v_final_joined_segments AS
+  SELECT
+    s.*,
+    pss.Num_Merge_Events,
+    pss.Latest_Merge_Event_Date
+  FROM v_final_joined_land s
+  LEFT JOIN parcel_segment_summary_duckdb pss ON s.Parcel_Number = pss.Parcel_Number;
+")
+cat("Step 7.6 finished.\n\n")
+
+
+# --- FINAL STEP: Create the persistent table from the final view ---
+cat("Final Step: Creating the persistent table from the final view...\n")
+dbExecute(con, "
+  CREATE OR REPLACE TABLE full_data_for_modeling_duckdb AS
+  SELECT * FROM v_final_joined_segments;
+")
+cat("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+cat("!!! SUCCESS! full_data_for_modeling_duckdb created. !!!\n")
+cat("!!! The data engineering phase is complete.          !!!\n")
+cat("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n")
+
+
+# --- FINAL VERIFICATION ---
+cat("--- Final Verification: Schema of full_data_for_modeling_duckdb ---\n")
+final_schema <- dbGetQuery(con, "PRAGMA table_info('full_data_for_modeling_duckdb');")
+kable(final_schema) %>% kable_styling(bootstrap_options = "condensed", font_size = 9) %>% print()
+
+cat("\n--- Total rows in final modeling table ---\n")
+final_count <- dbGetQuery(con, "SELECT COUNT(*) FROM full_data_for_modeling_duckdb;")
+print(final_count)
+```
+
+
+
+```{r}
+# --- Export the Final Table to CSV ---
+
+# This command uses DuckDB's built-in, high-speed COPY function.
+# It's the most efficient way to export data.
+# The file will be saved in your current project directory.
+
+cat("--- Exporting full_data_for_modeling_duckdb to CSV ---\n")
+
+dbExecute(con, "COPY full_data_for_modeling_duckdb TO 'full_data_for_modeling.csv' (HEADER, DELIMITER ',');")
+
+cat("--- Export complete. 'full_data_for_modeling.csv' has been saved. ---\n")
+```
+
+```{r}
+# --- Export the Final Table to Parquet ---
+
+# This command uses DuckDB's built-in, high-speed COPY function to create a
+# compressed, efficient Parquet file. This is the best practice.
+# The file will be saved in your current project directory.
+
+cat("--- Exporting full_data_for_modeling_duckdb to Parquet ---\n")
+
+dbExecute(con, "COPY full_data_for_modeling_duckdb TO 'full_data_for_modeling.parquet' (FORMAT 'PARQUET');")
+
+cat("--- Export complete. 'full_data_for_modeling.parquet' has been saved. ---\n")
+```
+
+
+# Close DuckDB Connection (End of Session)
+
+```{r}
+#| label: cleanup-duckdb-connection
+#| echo: false 
+#| include: false 
+
+if (exists("con") && DBI::dbIsValid(con)) {
+  DBI::dbDisconnect(con, shutdown = TRUE)
+  cat("DuckDB connection closed.\n") # Message suppressed by include=false
+}
+rm(list = ls()) # Clean up environment
+
+
+```
