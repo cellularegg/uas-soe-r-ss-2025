@@ -1,30 +1,17 @@
 library(shiny)
 library(ggplot2)
 library(dplyr)
-library(DT) # Added DT package
-housing_data <- read.csv("../data/final_data.csv")
-# str(housing_data )
+library(DT) # For data tables
+library(h2o) # For machine learning model
+library(rlang) # For .data pronoun in dplyr
+housing_data <- read.csv("../data/final_data_incl_land_area.csv")
 
-#' data.frame':   156511 obs. of  18 variables:
-#  $ Sale_Date_Raw      : chr  "2012-06-11" "2013-09-17" "2020-03-07" "2004-12-17" ...
-#  $ Sale_Price_Raw     : num  625000 120000 250000 320000 822000 369000 32500 259000 220000 141000 ...
-#  $ Square_Feet_Raw    : int  1673 1510 620 1364 2484 2375 1512 882 2210 1680 ...
-#  $ Latitude_Raw       : num  47.2 47.3 47.3 47.3 47.3 ...
-#  $ Longitude_Raw      : num  -123 -123 -123 -123 -123 ...
-#  $ Bedrooms_Raw       : int  3 2 2 3 4 3 3 2 3 2 ...
-#  $ Bathrooms_Raw      : num  2.5 2 1 1.75 3.25 2.5 2 1 2 2 ...
-#  $ Stories_Raw        : num  1 1 1 1 3 1.5 1 1 1 1 ...
-#  $ Quality            : chr  "Good" "Good" "Fair" "Average" ...
-#  $ Condition          : chr  "Average" "Average" "Average" "Average" ...
-#  $ Neighborhood       : chr  "101114" "100908" "100908" "101106" ...
-#  $ Street_Type        : chr  "STREET UNPAVED" "STREET UNPAVED" "PAVED" "PAVED" ...
-#  $ Utility_Water      : chr  "WATER INSTALLED" "WATER INSTALLED" "WATER INSTALLED" "WATER INSTALLED" ...
-#  $ Utility_Electric   : chr  "POWER INSTALLED" "POWER INSTALLED" "POWER INSTALLED" "POWER INSTALLED" ...
-#  $ Utility_Sewer      : chr  "SEWER/SEPTIC INSTALLED" "SEWER/SEPTIC INSTALLED" "SEWER/SEPTIC INSTALLED" "SEWER/SEPTIC INSTALLED" ...
-#  $ Improved_Vacant_Raw: int  1 1 1 1 1 1 0 1 1 0 ...
-#  $ Year_Built_Raw     : int  1995 1983 1976 1968 2023 2006 2020 1920 1997 1980 ...
-#  $ Price_Per_SqFt     : num  373.6 79.5 403.2 234.6 330.9 ...
+# Initialize h2o
+h2o.init(nthreads = -1, max_mem_size = "4G")
 
+# Load the saved model
+model_path <- "../models/saved-models/final-run/StackedEnsemble_AllModels_1_AutoML_1_20250623_200154"
+model <- h2o.loadModel(model_path)
 
 quality_levels <- c("Low", "Low Plus", "Fair", "Fair Plus", "Average", "Average Plus", "Good", "Good Plus", "Very Good", "Very Good Plus", "Excellent"  )
 condition_levels <- c("Uninhabitable", "Extra Poor", "Very Poor", "Poor", "Fair", "Average", "Good")
@@ -65,21 +52,20 @@ ui <- fluidPage(
           numericInput("Latitude_Raw", "Latitude",
             value = sample(housing_data$Latitude_Raw, 1),
             min = min(housing_data$Latitude_Raw, na.rm = TRUE),
-            max = max(housing_data$Latitude_Raw, na.rm = TRUE)
+            max = max(housing_data$Latitude_Raw, na.rm = TRUE),
+            step = 0.001
           ),
           numericInput("Longitude_Raw", "Longitude",
             value = sample(housing_data$Longitude_Raw, 1),
             min = min(housing_data$Longitude_Raw, na.rm = TRUE),
-            max = max(housing_data$Longitude_Raw, na.rm = TRUE)
+            max = max(housing_data$Longitude_Raw, na.rm = TRUE),
+            step = 0.001
           ),
-          # numericInput("Price_Per_SqFt", "Price Per SqFt",
-          #   value = sample(housing_data$Price_Per_SqFt, 1),
-          #   min = min(housing_data$Price_Per_SqFt, na.rm = TRUE),
-          #   max = max(housing_data$Price_Per_SqFt, na.rm = TRUE)
-          # )
-        ),
-        column(
-          3,
+          numericInput("Net_Land_Square_Feet_Raw", "Land Square Feet",
+            value = sample(housing_data$Net_Land_Square_Feet_Raw, 1),
+            min = min(housing_data$Net_Land_Square_Feet_Raw, na.rm = TRUE),
+            max = max(housing_data$Net_Land_Square_Feet_Raw, na.rm = TRUE)
+          ),
           numericInput("Bedrooms_Raw", "Bedrooms",
             value = sample(housing_data$Bedrooms_Raw, 1),
             min = min(housing_data$Bedrooms_Raw, na.rm = TRUE),
@@ -90,6 +76,10 @@ ui <- fluidPage(
             min = min(housing_data$Bathrooms_Raw, na.rm = TRUE),
             max = max(housing_data$Bathrooms_Raw, na.rm = TRUE), step = 0.25
           ),
+
+        ),
+        column(
+          3,
           numericInput("Stories_Raw", "Stories",
             value = sample(housing_data$Stories_Raw, 1),
             min = min(housing_data$Stories_Raw, na.rm = TRUE),
@@ -100,6 +90,14 @@ ui <- fluidPage(
             max = max(as.Date(housing_data$Sale_Date_Raw), na.rm = TRUE),
             value = sample(as.Date(housing_data$Sale_Date_Raw), 1)
           ),
+          selectInput("Neighborhood", "Neighborhood", choices = unique(housing_data$Neighborhood)),
+          numericInput("Year_Built_Raw", "Year Built",
+            value = sample(housing_data$Year_Built_Raw, 1),
+            min = min(housing_data$Year_Built_Raw, na.rm = TRUE),
+            max = max(housing_data$Year_Built_Raw, na.rm = TRUE)
+          ),
+          selectInput("Quality", "Quality", choices = quality_levels),
+
           div(
             style = "display: flex; justify-content: center; align-items: center; height: 100px;",
             actionButton("go", "Predict", style = "font-size: 24px;")
@@ -107,14 +105,12 @@ ui <- fluidPage(
         ),
         column(
           3,
-          selectInput("Quality", "Quality", choices = quality_levels),
           selectInput("Condition", "Condition", choices = condition_levels),
-          selectInput("Neighborhood", "Neighborhood", choices = unique(housing_data$Neighborhood)),
-          numericInput("Year_Built_Raw", "Year Built",
-            value = sample(housing_data$Year_Built_Raw, 1),
-            min = min(housing_data$Year_Built_Raw, na.rm = TRUE),
-            max = max(housing_data$Year_Built_Raw, na.rm = TRUE)
-          ),
+          selectInput("Street_Type", "Street Type", choices = unique(housing_data$Street_Type)),
+          selectInput("Utility_Water", "Utility Water", choices = unique(housing_data$Utility_Water)),
+          selectInput("Utility_Electric", "Utility Electric", choices = unique(housing_data$Utility_Electric)),
+          selectInput("Utility_Sewer", "Utility Sewer", choices = unique(housing_data$Utility_Sewer)),
+          checkboxInput("Improved_Vacant_Raw", "Improved (vs Vacant)", value = sample(housing_data$Improved_Vacant_Raw, 1))
         ),
         column(
           3,
@@ -181,7 +177,37 @@ ui <- fluidPage(
 
 server <- function(input, output) {
   predict <- eventReactive(input$go, {
-    value <- sample(housing_data$Sale_Price_Raw, 1)
+    # Create a dataframe with the input values
+    input_data <- data.frame(
+      Sale_Date_Raw = input$Sale_Date_Raw,
+      Square_Feet_Raw = input$Square_Feet_Raw,
+      Latitude_Raw = input$Latitude_Raw,
+      Longitude_Raw = input$Longitude_Raw,
+      Bedrooms_Raw = input$Bedrooms_Raw,
+      Bathrooms_Raw = input$Bathrooms_Raw,
+      Stories_Raw = input$Stories_Raw,
+      Quality = input$Quality,
+      Condition = input$Condition,
+      Neighborhood = input$Neighborhood,
+      Street_Type = input$Street_Type,
+      Utility_Water = input$Utility_Water,
+      Utility_Electric = input$Utility_Electric,
+      Utility_Sewer = input$Utility_Sewer,
+      Improved_Vacant_Raw = input$Improved_Vacant_Raw,
+      Year_Built_Raw = input$Year_Built_Raw,
+      Net_Land_Square_Feet_Raw = input$Net_Land_Square_Feet_Raw
+    )
+    
+    # Convert the dataframe to H2O format
+    input_h2o <- as.h2o(input_data)
+    
+    # Make a prediction using the model
+    prediction <- h2o.predict(model, input_h2o)
+    
+    # Extract the predicted value
+    value <- as.numeric(prediction[1, 1])
+    
+    # Format the value
     formatted <- formatC(value, format = "f", big.mark = ",", digits = 2)
     paste0(formatted, " $")
   })
@@ -193,41 +219,41 @@ server <- function(input, output) {
   })
 
   output$eda_hist <- renderPlot({
-    ggplot(housing_data, aes(x = Sale_Price_Raw)) +
+    ggplot(housing_data, aes(x = .data$Sale_Price_Raw)) +
       geom_histogram(bins = 50, fill = "skyblue", color = "black") +
       labs(x = "Sale Price", y = "Count", title = "Distribution of Sale Price")
   })
 
   output$eda_scatter <- renderPlot({
-    ggplot(housing_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+    ggplot(housing_data, aes(x = .data$Square_Feet_Raw, y = .data$Sale_Price_Raw)) +
       geom_point(alpha = 0.3, color = "darkblue") +
       scale_y_continuous(trans = "log10") +
       labs(x = "Square Feet", y = "Sale Price", title = "Sale Price vs Square Feet")
   })
 
   output$eda_boxplot <- renderPlot({
-    ggplot(housing_data, aes(x = Quality, y = Sale_Price_Raw)) +
+    ggplot(housing_data, aes(x = .data$Quality, y = .data$Sale_Price_Raw)) +
       geom_boxplot(fill = "orange", outlier.color = "red", outlier.size = 1) +
       labs(x = "Quality", y = "Sale Price", title = "Sale Price by Quality") +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
   })
 
   output$eda_boxplot_condition <- renderPlot({
-    ggplot(housing_data, aes(x = Condition, y = Sale_Price_Raw)) +
+    ggplot(housing_data, aes(x = .data$Condition, y = .data$Sale_Price_Raw)) +
       geom_boxplot(fill = "lightgreen", outlier.color = "red", outlier.size = 1) +
       labs(x = "Condition", y = "Sale Price", title = "Sale Price by Condition") +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
   })
 
   output$eda_bathrooms_scatter <- renderPlot({
-    ggplot(housing_data, aes(x = Bathrooms_Raw, y = Sale_Price_Raw)) +
+    ggplot(housing_data, aes(x = .data$Bathrooms_Raw, y = .data$Sale_Price_Raw)) +
       geom_point(alpha = 0.3, color = "purple") +
       scale_y_continuous(trans = "log10") +
       labs(x = "Bathrooms", y = "Sale Price", title = "Bathrooms vs Sale Price")
   })
 
   output$eda_yearbuilt_scatter <- renderPlot({
-    ggplot(housing_data, aes(x = Year_Built_Raw, y = Sale_Price_Raw)) +
+    ggplot(housing_data, aes(x = .data$Year_Built_Raw, y = .data$Sale_Price_Raw)) +
       geom_point(alpha = 0.3, color = "darkred") +
       scale_y_continuous(trans = "log10") +
       labs(x = "Year Built", y = "Sale Price", title = "Year Built vs Sale Price")
@@ -235,12 +261,12 @@ server <- function(input, output) {
 
   output$eda_neighborhood_boxplot <- renderPlot({
     top_neigh <- housing_data %>%
-      count(Neighborhood, sort = TRUE) %>%
+      count(.data$Neighborhood, sort = TRUE) %>%
       top_n(10, n) %>%
-      pull(Neighborhood)
+      pull(.data$Neighborhood)
     ggplot(
-      housing_data %>% filter(Neighborhood %in% top_neigh),
-      aes(x = Neighborhood, y = Sale_Price_Raw)
+      housing_data %>% filter(.data$Neighborhood %in% top_neigh),
+      aes(x = .data$Neighborhood, y = .data$Sale_Price_Raw)
     ) +
       geom_boxplot(fill = "lightblue", outlier.color = "red", outlier.size = 1) +
       scale_y_continuous(trans = "log10") +
@@ -249,5 +275,9 @@ server <- function(input, output) {
   })
 }
 
+# Make sure to shut down h2o when the app is closed
+onStop(function() {
+  h2o.shutdown(prompt = FALSE)
+})
 
 shinyApp(ui = ui, server = server)
