@@ -141,7 +141,7 @@ summary(comb_data$Sale_Price_Raw)
 # reduce dataset to 20% for fast param search
 set.seed(42)
 train_subset <- train_data %>%
-  sample_frac(0.2) %>%
+  sample_frac(0.05) %>%
   select(where(function(col) !(is.factor(col) && nlevels(col) > 100)))
 
 # folds
@@ -149,14 +149,22 @@ n <- nrow(train_subset)
 folds <- sample(rep(1:10, length.out = n))
 
 params_grid <- expand.grid(
-  eta = c(0.01, 0.05, 0.1),
+  eta = seq(0.0, 1.1, 0.25),# c(0.01, 0.05, 0.1, 0.2),
   max_depth = c(4, 6, 8),
-  subsample = c(0.7, 0.8, 1.0),
-  colsample_bytree = c(0.7, 0.8, 1.0),
-  gamma = c(0, 1, 5),
-  num.trees = c(100, 200, 300)
+  subsample = seq(0.0, 1.1, 0.25),
+  colsample_bytree = seq(0.0, 1.1, 0.25),
+  gamma = c(0, 0.5, 1, 5),
+  num.trees = seq(100, 1000, 200)
 )
+```
 
+```{r}
+colnames(train_subset)
+seq(0.0, 1.1, 0.1)
+seq(0.0, 1.1, 0.25)
+```
+
+```{r}
 cv_results <- data.frame(
   eta = double(),
   max_depth = integer(),
@@ -197,6 +205,7 @@ for (i in seq_len(nrow(params_grid))) {
       max_depth = params$max_depth,
       subsample = params$subsample,
       colsample_bytree = params$colsample_bytree,
+      early_stopping_rounds = 20,
       gamma = params$gamma,
       objective = "reg:squarederror",
       verbose = 0
@@ -331,8 +340,8 @@ library(Matrix)
 library(dplyr)
 library(progress)
 
-train_features <- train_data %>% select(-Sale_Price_log, -Sale_Price_Raw)
-test_features  <- test_data %>% select(-Sale_Price_log, -Sale_Price_Raw)
+train_features <- train_data %>% select(-Sale_Price_Raw, -Price_Per_SqFt, -Sale_Price_log)
+test_features  <- test_data %>% select(-Sale_Price_Raw, -Price_Per_SqFt, -Sale_Price_log)
 
 combined_matrix_data <- rbind(train_features, test_features)
 sparse_matrix <- sparse.model.matrix(~ . -1, data = combined_matrix_data)
@@ -347,10 +356,10 @@ dtrain <- xgb.DMatrix(data = train_matrix, label = train_label)
 dtest  <- xgb.DMatrix(data = test_matrix, label = test_label)
 
 best_params <- list(
-  eta = 0.1,
+  eta = 0.25,
   max_depth = 8,
-  subsample = 1.0,
-  colsample_bytree = 1.0,
+  subsample = 1,
+  colsample_bytree = 1,
   gamma = 0,
   alpha = 0.5,
   lambda = 1.0,
@@ -359,10 +368,15 @@ best_params <- list(
 ```
 
 ```{r}
+colnames(train_features)
+```
+
+```{r}
 xgb_model <- xgb.train(
   params = best_params,
   data = dtrain,
-  nrounds = 300, 
+  nrounds = 700, 
+  # early_stopping_rounds = 50,
   watchlist = list(train = dtrain),
   verbose = 1
 )
