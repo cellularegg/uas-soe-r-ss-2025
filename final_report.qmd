@@ -661,6 +661,33 @@ Further details on the CatBoost model, including hyper parameter tuning and feat
 
 ---
 
+### XGBoost Random Forest
+
+The XGBoost model was developed using gradient-boosted decision trees tailored for regression tasks. Initial hyperparameter exploration was conducted on a 5% stratified subset of the training data to speed up computation without compromising variability. High-cardinality categorical features (with more than 100 levels) were excluded from the search to reduce dimensional complexity during model matrix construction.
+
+A comprehensive grid search spanned multiple hyperparameter dimensions, including learning rate, maximum tree depth, row and column subsampling rates, tree count, and regularization term. Each configuration was evaluated using 10-fold cross-validation. The main evaluation metrics were all computed after reversing the log transformation applied to the target variable (Sale_Price_log).
+
+The search revealed that the best performing configuration, averaged across all folds, used `eta`=0.25, `max_depth`=8, `subsample`=1.0, `colsample_bytree`=1.0, `gamma`=0, and `num.trees`=700. This setting consistently achieved strong predictive performance, with a cross-validated RMSE of approximately 592.13, an MAE of 319.16, and a MAPE of 13.91%.
+
+
+```{r fig-xgboost-training-res, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
+# load jpg file
+library(jpeg)
+nn_loss <- readJPEG("plots/xgboost_training.jpg")
+ggplot() +
+  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
+  labs(title = "") +
+  theme_void()
+```
+
+The final model was trained on the full training set using these optimal parameters. Input features were transformed using one-hot encoding and converted into sparse matrices to handle the high dimensionality efficiently. The model was trained with the reg:squarederror objective function, and regularization parameters (alpha=0.5, lambda=1.0) were applied to encourage generalization.
+
+Performance on the held-out test set was evaluated after transforming predictions back to the original price scale. The final test metrics were:
+
+-   RMSE: 98453.05
+-   MAE: 73690.11
+-   MAPE: 28.02%
+
 ### Next Model
 
 ## Performance Metrics
