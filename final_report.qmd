@@ -584,7 +584,7 @@ In addition, the study explored log-transformed models, where the sale price was
 
 To assess model robustness, 10-fold cross-validation was conducted. The cross-validated OLS model yielded an RMSE of 110,450 and an MAE of 81,468, slightly higher than the single-split results but confirming general model stability. Importantly, MAPE served as a valuable metric for differentiating models beyond RMSE and MAE. The final Lasso model, trained on the full dataset with bathrooms excluded, achieved the best performance overall, with an RMSE of 99,574, MAE of 77,565, and a MAPE of 41.12%, highlighting its accuracy and interpretability for predicting house prices in absolute dollar terms.
 
-### Automl
+### AutoML
 
 To further improve predictive accuracy and streamline model selection, H2O’s AutoML was applied to the cleaned housing data. The training and tuning of a wide range of machine learning models—including Gradient Boosting Machines (GBM), Random Forests, and Stacked Ensembles—were handled automatically, with model performance evaluated using k-fold cross-validation and early stopping based on Mean Absolute Error (MAE) as the primary metric.
 
@@ -609,7 +609,6 @@ automl_results <- automl_results %>%
 kable(automl_results, caption = "AutoML Model Performance Summary (MAE, RMSE in $, MAPE in %)")
 ```
 
-
 ### Neural Network
 
 This model was implemented as a fully connected feedforward neural network using the Keras API. Its architecture includes two hidden layers with 128 and 32 units, respectively, using ReLU activation functions. To address potential overfitting, both layers incorporate L2 regularization with a penalty factor of 0.01, and dropout with a rate of 0.1 is applied after the first layer. The model's structure, learning rate, regularization strength, and batch size were all tuned iteratively during development based on validation performance.
@@ -620,10 +619,10 @@ To ensure efficient training and avoid overfitting, early stopping was implement
 
 Final evaluation on the test set yielded the following metrics:
 
-- **RMSE:** 54,254  
-- **MAE:** 35,744  
-- **MAPE:** 12.3%  
-- **R²:** 0.909
+-   **RMSE:** 54,254\
+-   **MAE:** 35,744\
+-   **MAPE:** 12.3%\
+-   **R²:** 0.909
 
 These results demonstrate strong predictive performance and indicate that the model generalizes well to unseen data.
 
@@ -643,8 +642,7 @@ ggplot() +
 
 A CatBoost regressor was trained to predict residential sale prices using gradient boosting on decision trees. The final model was selected after five rounds of cross-validated grid search executed on the FH HPC cluster, optimizing parameters such as [depth](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#depth) = 10, [l2_leaf_reg](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#l2_leaf_reg) = 3, [learning_rate](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#learning_rate) = 0.03, [iterations](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#iterations) = 1200, and [border_count](https://catboost.ai/docs/en/concepts/r-reference_catboost-train#border_count) = 32768.
 
-Model performance improved significantly through tuning, with the best model achieving a MAPE of 0.50%, MAE of $1,297, and RMSE of $3,851. The most influential predictors were `Square_Feet_Raw`, `Price_Per_SqFt`, and `Bathrooms`, as identified via CatBoost's feature importance scores.
-
+Model performance improved significantly through tuning, with the best model achieving a MAPE of 0.50%, MAE of \$1,297, and RMSE of \$3,851. The most influential predictors were `Square_Feet_Raw`, `Price_Per_SqFt`, and `Bathrooms`, as identified via CatBoost's feature importance scores.
 
 ```{r}
 cb_summary <- data.frame(
@@ -659,7 +657,7 @@ kable(cb_summary, caption = "Summary of CatBoost Model Performance Metrics (MAPE
 
 Further details on the CatBoost model, including hyper parameter tuning and feature importance analysis, can be found in [Appendix B](#appendix-catboost).
 
----
+------------------------------------------------------------------------
 
 ### XGBoost Random Forest
 
@@ -668,7 +666,6 @@ The XGBoost model was developed using gradient-boosted decision trees tailored f
 A comprehensive grid search spanned multiple hyperparameter dimensions, including learning rate, maximum tree depth, row and column subsampling rates, tree count, and regularization term. Each configuration was evaluated using 10-fold cross-validation. The main evaluation metrics were all computed after reversing the log transformation applied to the target variable (Sale_Price_log).
 
 The search revealed that the best performing configuration, averaged across all folds, used `eta`=0.25, `max_depth`=8, `subsample`=1.0, `colsample_bytree`=1.0, `gamma`=0, and `num.trees`=700. This setting consistently achieved strong predictive performance, with a cross-validated RMSE of approximately 592.13, an MAE of 319.16, and a MAPE of 13.91%.
-
 
 ```{r fig-xgboost-training-res, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
 # load jpg file
@@ -690,17 +687,29 @@ Performance on the held-out test set was evaluated after transforming prediction
 
 ### Next Model
 
-## Performance Metrics
+## Performance Metrics and Final Model Selection
 
-Compare models using MAPE, RMSE, R², cross-validation results.
+Based on the previously explained models, we have decided to implement the best performing one in our Shiny App, i.e., the **AutoML StackedEnsemble_AllModels_1**. The summary of all our models, with their respective MAE, RMSE, and MAPE values can be found in @table-all-summary.
 
-## Model Tuning
+```{r tbl-all-summary, echo=FALSE}
+library(knitr)
 
-Summarize how hyperparameters were optimized.
+model_summary <- data.frame(
+  Model = c(
+    "Lasso Model (No Bathrooms)",
+    "Neural Network",
+    "AutoML StackedEnsemble_AllModels_1",
+    "Tuned CatBoost Regression",
+    "XGBoost Random Forest"
+  ),
+  MAE = c(78515.13, 35744 , 30429.87, 0, 73690.11),
+  RMSE = c(105459.11, 54254, 47413.33, 0, 98453.05),
+  MAPE = c(43.56, 12.3, 10.25683, 0, 28.02)
+)
 
-## Final Model Interpretation
+kable(model_summary, caption = "Summary of Model Performance Metrics (MAE (\\$), RMSE (\\$), MAPE (\\%))")
 
-Explain key features and their effects in the chosen model.
+```
 
 ------------------------------------------------------------------------
 
@@ -710,42 +719,78 @@ Explain key features and their effects in the chosen model.
 
 The deployed Shiny app provides an interactive interface for exploring and predicting residential property prices in Pierce County. The app is organized into two main tabs:
 
-- **Prediction Tab**: Users can input property characteristics such as square footage, location (latitude/longitude), number of bedrooms and bathrooms, stories, sale date, quality, condition, neighborhood, and year built. After entering values, clicking the "Predict" button displays a predicted sale price based on the selected features. The layout is user-friendly, with numeric and dropdown inputs grouped logically for ease of use.
+-   **Prediction Tab**: Users can input property characteristics such as square footage, location (latitude/longitude), number of bedrooms and bathrooms, stories, sale date, quality, condition, neighborhood, and year built. After entering values, clicking the "Predict" button displays a predicted sale price based on the selected features. The layout is user-friendly, with numeric and dropdown inputs grouped logically for ease of use. Model predicting is explained in
 
-- **EDA Tab**: This tab offers exploratory data analysis tools, including:
-    - A data table preview of the first 100 rows of the dataset.
-    - Visualizations such as histograms of sale prices, scatter plots (e.g., sale price vs. square feet, bathrooms, year built), and boxplots by quality, condition, and neighborhood. These plots help users understand the distribution and relationships among key variables.
+```{r fig-xgboost-training-res, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
+# load jpg file
+library(jpeg)
+nn_loss <- readJPEG("plots/xgboost_training.jpg")
+ggplot() +
+  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
+  labs(title = "") +
+  theme_void()
+```
+
+-   **EDA Tab**: This tab offers exploratory data analysis tools, including:
+    -   A data table preview of the first 100 rows of the dataset.
+    -   Visualizations such as histograms of sale prices, scatter plots (e.g., sale price vs. square feet, bathrooms, year built), and boxplots by quality, condition, and neighborhood. These plots help users understand the distribution and relationships among key variables.
 
 The app leverages the DT package for interactive tables and ggplot2 for high-quality visualizations. It is designed to be accessible for both technical and non-technical users, supporting scenario analysis and data-driven decision making.
-
-## Use Case Example
-
-Give a sample scenario showing how a user would interact with it.
 
 ------------------------------------------------------------------------
 
 # Conclusion
 
-Summarize findings, limitations, and potential next steps.
-
-------------------------------------------------------------------------
+This project demonstrates a robust and comprehensive approach to modeling residential property values in Pierce County, WA, combining extensive data cleaning, exploratory analysis, and a range of predictive techniques. Key findings highlight the significant influence of structural attributes (e.g., square footage, quality), geographic variation, and utility access on housing prices. Among the evaluated models, ensemble-based machine learning methods—particularly H2O’s AutoML Stacked Ensemble—offered the best balance between accuracy and interpretability, achieving a MAPE of approximately 10.26%. The integration of this model into a Shiny App enables interactive prediction and data exploration, bridging technical analysis with practical application. While the study delivers strong predictive performance, limitations include reliance on historical sales data and the exclusion of potentially impactful unstructured features (e.g., photos, renovation history). Future work may incorporate geospatial trends over time, integrate external economic indicators, and explore deep learning techniques for further improvement.
 
 # References
 
-List any tools, packages, or datasets used formally.
+-   Pierce County Assessor-Treasurer Data Mart. (2023). Property, tax, and transaction data for Pierce County, Washington. Retrieved from https://epip.co.pierce.wa.us/datamart/
+
+-   R Core Team. (2023). R: A Language and Environment for Statistical Computing. R Foundation for Statistical Computing. https://www.R-project.org/
+
+-   Wickham, H. et al. (2023). dplyr: A Grammar of Data Manipulation. R package version 1.1.2. https://CRAN.R-project.org/package=dplyr
+
+-   Wickham, H. (2016). ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York. https://ggplot2.tidyverse.org/
+
+-   H2O.ai. (2023). H2O AutoML Documentation. https://docs.h2o.ai/h2o/latest-stable/h2o-docs/automl.html
+
+-   Friedman, J., Hastie, T., & Tibshirani, R. (2010). Regularization Paths for Generalized Linear Models via Coordinate Descent. Journal of Statistical Software, 33(1), 1–22. (Referenced via the glmnet R package)
+
+-   Kuhn, M. (2008). Building Predictive Models in R Using the caret Package. Journal of Statistical Software, 28(5), 1–26. https://CRAN.R-project.org/package=caret
+
+-   Chollet, F., & Allaire, J. J. (2018). Deep Learning with R. Manning Publications. (Referenced via the keras and tensorflow R interfaces)
+
+-   Chen, T. & Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System. Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining. https://doi.org/10.1145/2939672.2939785
+
+-   Prokhorenkova, L., Gusev, G., Vorobev, A., Dorogush, A.V., & Gulin, A. (2018). CatBoost: Unbiased Boosting with Categorical Features. Advances in Neural Information Processing Systems, 31. https://catboost.ai
+
+-   Pebesma, E. (2018). Simple Features for R: Standardized Support for Spatial Vector Data. The R Journal, 10(1), 439–446. (Referenced via the sf package)
+
+-   Tennekes, M. (2023). tigris: Load Census TIGER/Line Shapefiles. R package version 1.7.1. https://CRAN.R-project.org/package=tigris
+
+-   Kassambara, A. & Mundt, F. (2020). factoextra: Extract and Visualize the Results of Multivariate Data Analyses. R package version 1.0.7. https://CRAN.R-project.org/package=factoextra
+
+-   Meyer, D. et al. (2023). e1071: Misc Functions of the Department of Statistics, Probability Theory Group (Formerly: E1071), TU Wien. R package. (Used via Metrics, cluster, etc.)
+
+-   Liaw, A., & Wiener, M. (2002). Classification and Regression by randomForest. R News, 2(3), 18–22. (Referenced via ranger and related packages)
 
 ------------------------------------------------------------------------
 
-# Appendix A: Code
+# Appendix A: Links
 
-::: appendix
-You can fold all main processing and modeling code here using `echo: true`.
+-   GitHub Repository Link: <https://github.com/cellularegg/uas-soe-r-ss-2025/tree/main>
 
-\`\`\`{r} \# Example: show final model formula or preprocessing steps
-:::
+-   Data Merging and Preprocessing: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/DataCombining.qmd>
 
-# Appendix B: Catboost regressor Code {#appendix-catboost}
+-   Link to Exploratory Data Analysis: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/reports/EDA.qmd>
 
-{{< include models/catboost_regressor/catboost_regressor.qmd >}}
+-   Link to Linear and Lasso Regression Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/Linear%20Regression.qmd>
 
+-   Link to Neural Network Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/Neural_Network.qmd>
 
+-   Link to AutoML Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/automl.qmd>
+
+-   Link to CatBoost Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/catboost_regressor/catboost_regressor.qmd>
+
+-   Link to XGBoost Random Forest Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/random_forest.qmd>
