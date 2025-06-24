@@ -687,9 +687,9 @@ Performance on the held-out test set was evaluated after transforming prediction
 
 ### Next Model
 
-## Performance Metrics and Final Model Selection
+## Model Selection Summary
 
-Based on the previously explained models, we have decided to implement the best performing one in our Shiny App, i.e., the **AutoML StackedEnsemble_AllModels_1**. The summary of all our models, with their respective MAE, RMSE, and MAPE values can be found in @table-all-summary.
+Based on the previously explained models, we have decided to implement the best performing one in our Shiny App, i.e., the **AutoML StackedEnsemble_AllModels_1**. The summary of all our models, with their respective MAE, RMSE, and MAPE values Can be found in @table-all-summary. Furthermore, all .qmd source files used throughout the project—including data cleaning, exploratory analysis, and model development—are compiled in [Appendix A](#appendix-a) for reference.
 
 ```{r tbl-all-summary, echo=FALSE}
 library(knitr)
@@ -721,19 +721,17 @@ The deployed Shiny app provides an interactive interface for exploring and predi
 
 -   **Prediction Tab**: Users can input property characteristics such as square footage, location (latitude/longitude), number of bedrooms and bathrooms, stories, sale date, quality, condition, neighborhood, and year built. After entering values, clicking the "Predict" button displays a predicted sale price based on the selected features. The layout is user-friendly, with numeric and dropdown inputs grouped logically for ease of use. Model predicting is explained in
 
-```{r fig-xgboost-training-res, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
-# load jpg file
-library(jpeg)
-nn_loss <- readJPEG("plots/xgboost_training.jpg")
-ggplot() +
-  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
-  labs(title = "") +
-  theme_void()
+```{r shiny-pred, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
+# add photo of prediction tab
 ```
 
 -   **EDA Tab**: This tab offers exploratory data analysis tools, including:
     -   A data table preview of the first 100 rows of the dataset.
     -   Visualizations such as histograms of sale prices, scatter plots (e.g., sale price vs. square feet, bathrooms, year built), and boxplots by quality, condition, and neighborhood. These plots help users understand the distribution and relationships among key variables.
+
+```{r shiny-eda, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
+#add photo of prediction tab
+```
 
 The app leverages the DT package for interactive tables and ggplot2 for high-quality visualizations. It is designed to be accessible for both technical and non-technical users, supporting scenario analysis and data-driven decision making.
 
@@ -777,7 +775,7 @@ This project demonstrates a robust and comprehensive approach to modeling reside
 
 ------------------------------------------------------------------------
 
-# Appendix A: Links
+# Appendix A: Links {#appendix-a}
 
 -   GitHub Repository Link: <https://github.com/cellularegg/uas-soe-r-ss-2025/tree/main>
 
@@ -794,3 +792,5 @@ This project demonstrates a robust and comprehensive approach to modeling reside
 -   Link to CatBoost Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/catboost_regressor/catboost_regressor.qmd>
 
 -   Link to XGBoost Random Forest Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/random_forest.qmd>
+
+-   Link to Shiny App Deployment Folder: <https://github.com/cellularegg/uas-soe-r-ss-2025/tree/main/shiny>
