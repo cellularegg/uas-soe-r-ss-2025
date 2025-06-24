@@ -19,6 +19,7 @@ if (!require(caret)) install.packages("caret")
 if (!require(tictoc)) install.packages("tictoc")
 if (!require(Metrics)) install.packages("Metrics")
 if (!require(MetricsWeighted)) install.packages("MetricsWeighted")
+if (!require(here)) install.packages("here")
 
 library(readr)
 library(data.table)
@@ -28,18 +29,17 @@ library(catboost)
 library(tictoc)
 library(Metrics) 
 library(MetricsWeighted)
+library(here)
 ```
 
-# Load anddata
+# Load data
 
 ```{r}
 # Load data
-data <- read_csv("../data/final_data.csv", 
-    col_types = cols(Sale_Date_Raw = col_date(format = "%Y-%m-%d"))
-  )
+data <- read_csv(here("data", "final_data.csv"),
+                 col_types = cols(Sale_Date_Raw = col_date(format = "%Y-%m-%d")))
 
-# View data
-head(data)
+data <- data %>% select(-Price_Per_SqFt) 
 ```
 
 ## Columns names
@@ -51,7 +51,6 @@ colnames(data)
 ## Describe the data
 
 ```{r}
-# describe the data
 summary(data)
 ```
 
@@ -86,9 +85,49 @@ train_pool <- catboost.load_pool(X_tr, label = y_tr)
 test_pool <- catboost.load_pool(X_te, label = y_te)
 ```
 
-## Simple CatBoost model
+## Helper functions
+```{r}
+evaluate_model <- function(actual, predicted) {
+  mape_val <- mape(actual, predicted)
+  mae_val  <- mae(actual, predicted)
+  rmse_val <- rmse(actual, predicted)
+  r2_val   <- R2(predicted, actual)
+  
+  cat(sprintf(
+    "MAE: %.4f\nMAPE: %.4f\nRMSE: %.4f\nR²: %.4f\n",
+    mae_val, mape_val, rmse_val, r2_val
+  ))
+  
+  return(invisible(list(
+    MAE  = mae_val,
+    MAPE = mape_val,
+    RMSE = rmse_val,
+    R2   = r2_val
+  )))
+}
 
-### CPU
+plot_predictions <- function(actual, predicted, title = "Predicted vs. Actual Sale Prices") {
+  plot_df <- data.frame(
+    Actual    = actual,
+    Predicted = predicted
+  )
+  
+  ggplot(plot_df, aes(x = Actual, y = Predicted)) +
+    geom_point(alpha = 0.25) +
+    geom_abline(slope = 1, intercept = 0,
+                linetype = "dashed", color = "red", size = 0.8) +
+    labs(
+      title = title,
+      x     = "Actual Sale_Price_Raw",
+      y     = "Predicted Sale_Price_Raw"
+    ) +
+    theme_minimal()
+}
+
+```
+
+
+## Simple CatBoost model
 
 ```{r}
 tic("CatBoost training on CPU")
@@ -104,11 +143,12 @@ model_cpu <- catboost.train(
     logging_level = "Silent"
 ))
 
-# quick sanity check
 pred  <- catboost.predict(model_cpu, test_pool)
 toc()
-cat("RMSE:", round(sqrt(mean((pred - y_te)^2)), 2), "\n")
+evaluate_model(y_te, pred)
+plot_predictions(y_te, pred)
 ```
+
 
 ```{r}
 catboost.get_feature_importance(model_cpu,
@@ -117,88 +157,82 @@ catboost.get_feature_importance(model_cpu,
                                 thread_count = -1)
 ```
 
-### GPU
-> Training on GPU somehow breakes the rendering of the document, so it's commented out.
-
-```{r}
-# tic("CatBoost training on GPU")
-# model_gpu <- catboost.train(
-#   learn_pool = train_pool,
-#   params = list(
-#     loss_function = "RMSE",
-#     iterations    = 64,
-#     learning_rate = 0.1,
-#     depth         = 3,
-#     l2_leaf_reg   = 3,
-#     logging_level = "Silent",
-#     task_type = 'GPU'
-# ))
-# 
-# # quick sanity check
-# pred  <- catboost.predict(model_gpu, test_pool)
-# cat("RMSE:", round(sqrt(mean((pred - y_te)^2)), 2), "\n")
-# toc()
-```
-
-```{r}
-# catboost.get_feature_importance(model_gpu,
-#                                 pool = NULL,
-#                                 type = "FeatureImportance",
-#                                 thread_count = -1)
-```
 
 # Cross Validation
+The cross validation was done on the FH High-Performance Computing Cluster (HPC).
 
-```{r}
-# X <- data %>% 
-#   select(-Sale_Price_Raw) %>% 
-#   mutate(
-#     Sale_Date_Raw = as.numeric(Sale_Date_Raw),
-#     across(where(is.character), as.factor)
-#   )
-# y <- data$Sale_Price_Raw
-
-# 5-fold CV ----------------------------------------------------------------------
-# ctrl <- trainControl(method = "cv", number = 5, repeats = 3)
-# 
-# grid <- expand.grid(
-#   depth         = c(8, 9, 10, 11, 15),
-#   learning_rate = c(0.05, 0.03, 0.02, 0.01),
-#   iterations    = c(800, 1000, 1200, 1500),
-#   l2_leaf_reg   = c(3, 5, 8),
-#   rsm = 1,
-#   border_count = c(32, 64, 128)
-# )
-# 
-# tic("CatBoost grid search (GPU)")
-# cb_fit <- train(
-#   x = X, y = y,
-#   method     = catboost.caret,
-#   tuneGrid   = grid,
-#   trControl  = ctrl,
-#   metric     = "RMSE",
-#   loss_function = "RMSE",          # passed straight to CatBoost
-#   task_type     = "GPU",
-#   logging_level = "Silent"
-# )
-# toc()
-# 
-# cb_fit$bestTune     # best hyper-parameters
-# cb_fit$results
+1. Creating a param grid
+```bash
+Rscript - <<'R'
+library(data.table)
+grid <- CJ(depth = c(10,11,12,13),
+           learning_rate = c(0.03,0.02),
+           iterations = c(1000,1200),
+           l2_leaf_reg = c(3,4),
+           rsm = 1,
+           border_count = c(1024,2048,4096,8192))
+fwrite(grid, "grid_03.csv")
+R
 ```
 
-> This took to long so I used the FH High-Performance Computing Cluster (HPC)
+2. create a slurm batchjob `catboost_array.sh`
+```bash
+#!/bin/sh
+#SBATCH --job-name=catgrid
+#SBATCH --nodes=10                 # use 10 of the 19 PCs
+#SBATCH --ntasks-per-node=8        # 8 cores each  → 80 slots
+#SBATCH -a 1-720%80                # 720 tasks, max 80 run at once
+#SBATCH --time=12:00:00
+#SBATCH --output=slurm-%A_%a.out
 
-And run a few CV rounds
+export R_LIBS_USER=$HOME/R/x86_64-pc-linux-gnu-library/4.3
+.libPaths("$R_LIBS_USER")        # if you embed R inline
+
+
+srun R --slave <<'EOF'
+idx <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+
+library(data.table); library(catboost); library(dplyr); library(readr)
+
+hp   <- fread("grid.csv")[idx]
+
+data <- read_csv("~/rjobs/data.csv",
+                 col_types = cols(Sale_Date_Raw = col_date("%Y-%m-%d")))
+X <- data %>% select(-Sale_Price_Raw) %>%
+        mutate(Sale_Date_Raw = as.numeric(Sale_Date_Raw),
+               across(where(is.character), as.factor))
+y <- data$Sale_Price_Raw
+pool <- catboost.load_pool(X, label = y)
+
+m <- catboost.train(pool, NULL, params = list(
+         depth         = hp$depth,
+         learning_rate = hp$learning_rate,
+         iterations    = hp$iterations,
+         l2_leaf_reg   = hp$l2_leaf_reg,
+         rsm           = hp$rsm,
+         border_count  = hp$border_count,
+         loss_function = "RMSE",
+         task_type     = "CPU",
+         logging_level = "Silent"))
+
+rmse <- sqrt(mean((catboost.predict(m, pool) - y)^2))
+write.table(cbind(idx, rmse), file = sprintf("%03d.res", idx),
+            row.names = FALSE, col.names = FALSE, sep = ",")
+EOF
+```
+
+3. Submit batch job
+```bash
+sbatch catboost_array_02.sh
+```
 
 ## First CV round
 
 ```{r, echo=FALSE, warning=FALSE}
-files   <- list.files("rjobs/res", pattern = "\\.res$", full.names = TRUE)
+files   <- list.files(here("models", "catboost_regressor", "rjobs", "res"), pattern = "\\.res$", full.names = TRUE)
 
 results <- rbindlist(lapply(files, fread), fill = TRUE)
 
-## 2 · build the ggplot ----
 p <- ggplot(
   results,
   aes(
@@ -256,18 +290,17 @@ Get model with best RMSE:
 
 ```{r, echo=FALSE}
 best <- results[which.min(RMSE)]
-best
+best[,1:9]
 ```
 
 ## Second CV round
 After identifying the best hyper-parameters in the first round, we can now run a second round with higher border count and fewer combinations for other hyper parameters.
 
 ```{r, echo=FALSE, warning=FALSE}
-files   <- list.files("rjobs/res_02", pattern = "\\.res$", full.names = TRUE)
+files   <- list.files(here("models", "catboost_regressor", "rjobs", "res_02"), pattern = "\\.res$", full.names = TRUE)
 
 results <- rbindlist(lapply(files, fread), fill = TRUE)
 
-## 2 · build the ggplot ----
 p <- ggplot(
   results,
   aes(
@@ -295,7 +328,6 @@ p
 Again we can see that higher **border_count** yields overall lower RMSE. Therefor taking a closer look at border count 512.
 
 ```{r, echo=FALSE, warning=FALSE}
-## 2 · build the ggplot ----
 p <- ggplot(
   results[border_count == 512],
   aes(
@@ -326,18 +358,17 @@ Get model with lowest RMSE
 
 ```{r, echo=FALSE}
 best <- results[which.min(RMSE)]
-best
+best[,1:9]
 ```
 
 ## Third VC round
 After seeing the big drop between border_count of 256 and 512 I am convinced that we can go further with the border_count.
 
 ```{r, echo=FALSE, warning=FALSE}
-files   <- list.files("rjobs/res_03", pattern = "\\.res$", full.names = TRUE)
+files   <- list.files(here("models", "catboost_regressor", "rjobs", "res_03"), pattern = "\\.res$", full.names = TRUE)
 
 results <- rbindlist(lapply(files, fread), fill = TRUE)
 
-## 2 · build the ggplot ----
 p <- ggplot(
   results,
   aes(
@@ -365,7 +396,6 @@ p
 First time we see that RMSE does not drop substantially with higher border_count. But we can see that **learning rate** of 0.03 performs best among the three tree depths. **l2_leaf_reg** of 3 is also performing best among these three.
 
 ```{r, echo=FALSE, warning=FALSE}
-## 2 · build the ggplot ----
 p <- ggplot(
   results[border_count == 8192],
   aes(
@@ -394,18 +424,17 @@ Get model with lowest RMSE
 
 ```{r, echo=FALSE}
 best <- results[which.min(RMSE)]
-best
+best[,1:9]
 ```
 
 ## Fourth VC round
 Further exploring higher border_count.
 
 ```{r, echo=FALSE, warning=FALSE}
-files   <- list.files("rjobs/res_04", pattern = "\\.res$", full.names = TRUE)
+files   <- list.files(here("models", "catboost_regressor", "rjobs", "res_04"), pattern = "\\.res$", full.names = TRUE)
 
 results <- rbindlist(lapply(files, fread), fill = TRUE)
 
-## 2 · build the ggplot ----
 p <- ggplot(
   results,
   aes(
@@ -434,18 +463,17 @@ Get model with lowest RMSE
 
 ```{r, echo=FALSE}
 best <- results[which.min(RMSE)]
-best
+best[,1:9]
 ```
 
 ## Fitfth VC round
 After going back and forth and looking at the results I decided to run a final CV round with a range or **border_count** raging from 1024 (2^10) to 65535 (2^16 - 1 - which is the maximum for this parameter). A **l2_leaf_reg** of 3, **iterations** of 1000 and 1200, **learning rate** of 0.02 and 0.03 and a **three depth** of 10. 
 
 ```{r, echo=FALSE, warning=FALSE}
-files   <- list.files("rjobs/res_05", pattern = "\\.res$", full.names = TRUE)
+files   <- list.files(here("models", "catboost_regressor", "rjobs", "res_05"), pattern = "\\.res$", full.names = TRUE)
 
 results <- rbindlist(lapply(files, fread), fill = TRUE)
 
-## 2 · build the ggplot ----
 p <- ggplot(
   results,
   aes(
@@ -453,11 +481,9 @@ p <- ggplot(
     y      = RMSE,
     colour = factor(learning_rate),
     size   = factor(iterations),
-    #shape  = factor(l2_leaf_reg)
   )
 ) +
   geom_point(alpha = 0.85) +
-  # facet_wrap(~ border_count, nrow = 1) +
   labs(
     x      = "Tree depth",
     y      = "CV-RMSE",
@@ -472,9 +498,9 @@ p
 
 Get model with lowest RMSE
 
-```{r, echo=FALSE}
+```{r echo=TRUE}
 best <- results[which.min(RMSE)]
-best
+best[,1:9]
 ```
 
 # Final Model
@@ -482,92 +508,32 @@ best
 Based on the results of the CV rounds, we will use the following hyper-parameters for the final model:
 
 ```{r}
-set.seed(42)
-idx   <- createDataPartition(data$Sale_Price_Raw, p = 0.80, list = FALSE)
-train <- data[idx,  ]
-test  <- data[-idx,  ]
-
-tic("CatBoost training Final Model")
-
-#── feature prep helper ──────────────────────────────────────
-prep <- function(df) {
-  df %>%
-    mutate(
-      Sale_Date_Raw = as.numeric(Sale_Date_Raw),
-      across(where(is.character), as.factor)
-    ) %>%
-    select(-Sale_Price_Raw)
-}
-
-X_tr <- prep(train); 
-y_tr <- train$Sale_Price_Raw
-
-X_te <- prep(test);  
-y_te <- test$Sale_Price_Raw
-
-#── CatBoost pools (no cat_features param needed) ─────────────
-tr_pool <- catboost.load_pool(X_tr, label = y_tr)
-te_pool <- catboost.load_pool(X_te, label = y_te)
-
-#── train final model on GPU ─────────────────────────────────
-final_model <- catboost.train(
-  learn_pool = tr_pool,
-  test_pool  = te_pool,
   params = list(
     depth         = 10,
     learning_rate = 0.03,
-    iterations    = 1200,
+    iterations    = 10,
     loss_function = "RMSE",
     l2_leaf_reg   = 3,
     task_type     = "CPU",
-    border_count  = 32768	,
+    border_count  = 10	,
     logging_level = "Silent"
   )
-)
-toc()
-
-#── evaluate on held-out test set ────────────────────────────
-pred <- catboost.predict(final_model, te_pool)
-rmse <- sqrt(mean((pred - y_te)^2))
-cat("Test RMSE:", round(rmse, 2), "\n")
-toc()
-```
-
-## Actuall vs. predicted sale prices:
-
-```{r}
-plot_df <- data.frame(
-  Actual    = y_te,
-  Predicted = pred
-)
-
-ggplot(plot_df, aes(x = Actual, y = Predicted)) +
-  geom_point(alpha = 0.25) +
-  geom_abline(slope = 1, intercept = 0,
-              linetype = "dashed", color = "red", size = 0.8) +
-  labs(
-    title = "Predicted vs. Actual Sale Prices",
-    x     = "Actual Sale_Price_Raw",
-    y     = "Predicted Sale_Price_Raw"
-  ) +
-  theme_minimal()
 ```
 
 
-## Metrics
-
 ```{r}
-# MAPE (Mean Absolute Percentage Error)
-mape_val <- mape(y_te, pred)
-mae_val <- mae(y_te, pred)
-# RMSE (Root Mean Squared Error)
-rmse_val <- rmse(y_te, pred)
+final_model <- catboost.train(
+  learn_pool = train_pool,
+  test_pool  = test_pool,
+  params = params
+)
+toc()
+evaluate_model(y_te, pred)
+plot_predictions(y_te, pred)
 
-# R² (Coefficient of Determination)
-r2_val <- R2(pred, y_te)
-
-# Print
-cat(sprintf("MAPE: %.4f\nMAE: %.4f\nRMSE: %.4f\nR²: %.4f\n", mape_val, mae_val, rmse_val, r2_val))
+# save model
+catboost.save_model(final_model, 
+                    model_path = here("models", "catboost_regressor", "model.cbm"))
 ```
 
 
