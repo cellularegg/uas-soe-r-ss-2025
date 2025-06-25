@@ -302,6 +302,21 @@ corrplot(cor_matrix, method = "circle",
          diag = FALSE)         
 ```
 
+<div class="slide" data-narration-layer="1" style="font-size: 0.9em;">
+
+# Location
+
+- Significant spatial variation observed across Pierce County  
+- Heatmap of median price per sqft reveals clear clusters  
+- Highest prices (~\$460/sqft) concentrated in northwestern corridor  
+- Premium areas near waterfront and urban-adjacent zones  
+- Lower prices in rural and southern regions  
+- See figure @fig-loc-map for visual reference  
+
+</div>
+
+# Location
+
 ```{r fig-loc-map, fig.cap="Spatial Distribution of Median Price per Square Foot across Pierce County", fig.align="center", warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
 # 1. Load Pierce County boundary (Washington = '53')
 pierce_county <- counties(state = "53", cb = TRUE) %>%
@@ -365,46 +380,46 @@ log_breaks <- seq(log_min, log_max, length.out = 5)
 # Convert breaks back to original scale for labeling
 legend_labels <- scales::dollar(exp(log_breaks))
 
-# ggplot() +
-#   geom_sf(data = pierce_county, fill = "white", color = "black", size = 0.6) +
-#   geom_rect(
-#     data = heatmap_data,
-#     aes(
-#       xmin = xmin, xmax = xmax,
-#       ymin = ymin, ymax = ymax,
-#       fill = log(Avg_Price_sqft)  # fill is log-transformed
-#     ),
-#     alpha = 0.85,
-#     color = NA
-#   ) +
-#   scale_fill_viridis_c(
-#     option = "magma",
-#     trans = "identity",           # no further transformation, since fill is already log
-#     breaks = log_breaks,          # breaks evenly spaced in log scale
-#     labels = legend_labels,       # labels in original scale
-#     na.value = "grey90",
-#     name = "Price per sqft"
-#   ) +
-#   coord_sf(xlim = lon_range, ylim = lat_range, expand = FALSE) +
-#   labs(
-#     title = "Median Prices of Houses",
-#     subtitle = "in Pierce County",
-#     x = "Longitude",
-#     y = "Latitude"
-#   ) +
-#   theme_minimal(base_size = 13) +
-#   theme(
-#     plot.title = element_text(face = "bold", size = 18, hjust = 0.5, margin = margin(b = 4)),
-#     plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
-#     axis.title = element_text(face = "italic", size = 12),
-#     axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
-#     axis.text.y = element_text(size = 9),
-#     legend.title = element_text(face = "bold", size = 12),
-#     legend.text = element_text(size = 10),
-#     legend.key.height = unit(0.5, "cm"),  # increase legend height here
-#     panel.grid.major = element_line(color = "gray80", size = 0.3),
-#     panel.grid.minor = element_blank()
-#   )
+ggplot() +
+  geom_sf(data = pierce_county, fill = "white", color = "black", size = 0.6) +
+  geom_rect(
+    data = heatmap_data,
+    aes(
+      xmin = xmin, xmax = xmax,
+      ymin = ymin, ymax = ymax,
+      fill = log(Avg_Price_sqft)  # fill is log-transformed
+    ),
+    alpha = 0.85,
+    color = NA
+  ) +
+  scale_fill_viridis_c(
+    option = "magma",
+    trans = "identity",           # no further transformation, since fill is already log
+    breaks = log_breaks,          # breaks evenly spaced in log scale
+    labels = legend_labels,       # labels in original scale
+    na.value = "grey90",
+    name = "Price per sqft"
+  ) +
+  coord_sf(xlim = lon_range, ylim = lat_range, expand = FALSE) +
+  labs(
+    title = "Median Prices of Houses",
+    subtitle = "in Pierce County",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5, margin = margin(b = 4)),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
+    axis.title = element_text(face = "italic", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    axis.text.y = element_text(size = 9),
+    legend.title = element_text(face = "bold", size = 12),
+    legend.text = element_text(size = 10),
+    legend.key.height = unit(0.5, "cm"),  # increase legend height here
+    panel.grid.major = element_line(color = "gray80", size = 0.3),
+    panel.grid.minor = element_blank()
+  )
 ```
 
 <div style="font-size: 0.9em;">
