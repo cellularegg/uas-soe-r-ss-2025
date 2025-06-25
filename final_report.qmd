@@ -3,9 +3,9 @@ title: "Pierce County Property Valuation"
 author: "B1_Pierce-House-Price"
 format:
   pdf:
-    toc: true              # show table of contents
-    toc-depth: 3           # how deep the TOC goes (e.g., h1, h2, h3)
-    number-sections: true  # section numbering
+    toc: true
+    toc-depth: 3
+    number-sections: true
     include-in-header:
       text: |
         \usepackage{longtable}
@@ -14,13 +14,19 @@ format:
         \usepackage{graphicx}
         \usepackage{float}
         \usepackage[margin=1in]{geometry}
-    number-depth: 3        # how deep to number (optional)
-    number: true           # enables figure/table numbering
-    fig-cap-location: top  # (optional) place captions on top
+        \usepackage{tocloft}
+        % Reduce vertical spacing between TOC items
+        \setlength{\cftbeforesecskip}{2pt}
+        \setlength{\cftbeforesubsecskip}{1pt}
+        \setlength{\cftbeforesubsubsecskip}{1pt}
+    number-depth: 3
+    number: true
+    fig-cap-location: top
     theme: cosmo
     code-fold: true
     code-summary: "Show code"
     df-print: kable
+
 execute:
   echo: false              # hides code by default (for clean report)
   warning: false
@@ -33,7 +39,7 @@ library(dplyr)
 library(readr)
 library(tidyr)
 
-full_data <- read_csv("data/final_data.csv", show_col_types = FALSE)
+full_data <- read_csv("data/final_data_incl_land_area.csv", show_col_types = FALSE)
 ```
 
 ```{r}
@@ -55,7 +61,8 @@ full_data <- full_data %>%
     Utility_Electric,
     Utility_Sewer,
     Improved_Vacant_Raw,
-    Year_Built_Raw
+    Year_Built_Raw,
+    Net_Land_Square_Feet_Raw = Net_Land_Square_Feet_Raw
   ) %>%
   mutate(
     Sale_Date_Raw       = as.Date(Sale_Date_Raw),
@@ -74,7 +81,8 @@ full_data <- full_data %>%
     Utility_Electric    = as.factor(Utility_Electric),
     Utility_Sewer       = as.factor(Utility_Sewer),
     Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
-    Year_Built_Raw      = as.numeric(Year_Built_Raw)
+    Year_Built_Raw      = as.numeric(Year_Built_Raw),
+    Net_Land_Square_Feet_Raw = as.numeric(Net_Land_Square_Feet_Raw)
   )
 ```
 
@@ -104,6 +112,8 @@ This project aims to explore and model residential property values in Pierce Cou
     -   **Luxury Indicators**: Explore which **characteristics are common among the most expensive properties**, with a focus on high-end market drivers.
 
 These objectives guide both the technical modeling pipeline and the exploratory data analysis, ensuring actionable and interpretable outcomes.
+
+\newpage
 
 # Data Description & Preparation
 
@@ -194,7 +204,8 @@ data_dict <- tibble::tribble(
   "Utility_Electric (U)",   "Electric utility access",             "Factor",  "3 levels",
   "Utility_Sewer (U)",      "Sewer utility access",                "Factor",  "5 levels",
   "Improved_Vacant _Raw (I)","Improvement status",                 "Factor",  "2 levels",
-  "Year_Built_Raw (Q)",     "Year the building was constructed",   "Numeric", "Year"
+  "Year_Built_Raw (Q)",     "Year the building was constructed",   "Numeric", "Year",
+  "Net_Land_Square_Feet_Raw (S)", "Net land area in square feet", "Numeric", "Square feet"
 )
 
 knitr::kable(data_dict, caption = "Data Dictionary for Final Dataset (* indicates the target variable; TC = Temporal Context, S = Size & Structure, L = Location, U = Utilities, Q = Quality & Condition, I = Improvement)")
@@ -203,7 +214,9 @@ knitr::kable(data_dict, caption = "Data Dictionary for Final Dataset (* indicate
 
 ## Final Dataset Summary
 
-The final dataset consists of 156,511 observations and 17 variables, capturing a rich set of residential property attributes in Pierce County. It includes transaction-level data (such as sale price and date), physical characteristics (e.g., square footage, number of bedrooms and bathrooms, number of stories, and year built), locational coordinates (latitude and longitude), categorical ratings for construction quality and condition, and utility access indicators. Neighborhood identifiers and street types provide further spatial context. All variables were cleaned and consistently typed, with numeric measures standardized where appropriate and categorical variables converted to factors with clearly defined levels. The target variable for predictive modeling is Sale_Price_Raw, denoted with an asterisk in the data dictionary.
+The final dataset consists of 156,511 observations and 18 variables, capturing a rich set of residential property attributes in Pierce County. It includes transaction-level data (such as sale price and date), physical characteristics (e.g., square footage, number of bedrooms and bathrooms, number of stories, and year built), locational coordinates (latitude and longitude), categorical ratings for construction quality and condition, and utility access indicators. Neighborhood identifiers and street types provide further spatial context. All variables were cleaned and consistently typed, with numeric measures standardized where appropriate and categorical variables converted to factors with clearly defined levels. The target variable for predictive modeling is Sale_Price_Raw, denoted with an asterisk in the data dictionary.
+
+\newpage
 
 # Exploratory Data Analysis (EDA)
 
@@ -463,15 +476,17 @@ ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
 1.  This section explores how combinations of variables relate to house prices. Size and Quality: Larger homes consistently sell for more, but the slope varies by quality. Higher-quality homes command higher prices even for smaller square footage. This points to a strong interaction between size and quality (@fig-price-sqft-quality).
 
 ```{r fig-price-sqft-quality, fig.cap="Relationship between Sale Price and Square Footage across Construction Quality Levels", fig.align="center", warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
-ggplot(full_data, aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
-      geom_point(alpha = 0.3, size = 0.5) +
-      geom_smooth(method = "lm", color = "red", se = FALSE) +
-      scale_y_log10(labels = scales::dollar) +
-      facet_wrap(~ Quality, scales = "free") +
-      labs(title = "Sale Price vs. Square Feet by Quality",
-           x = "Square Feet", y = "Sale Price") +
-      theme_minimal()+
-      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+full_data %>%
+  filter(Quality %in% c("Low", "Average", "Very Good")) %>%
+  ggplot(aes(x = Square_Feet_Raw, y = Sale_Price_Raw)) +
+    geom_point(alpha = 0.3, size = 0.5) +
+    geom_smooth(method = "lm", color = "red", se = FALSE) +
+    scale_y_log10(labels = scales::dollar) +
+    facet_wrap(~ Quality, scales = "free") +
+    labs(title = "Sale Price vs. Square Feet by Quality",
+         x = "Square Feet", y = "Sale Price") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 2.  Neighborhood and Quality: In the top 5 neighborhoods, price consistently increases with quality. However, the price gap between quality levels varies across neighborhoods, highlighting how location amplifies or dampens the effect of quality (@fig-price-nbhd-quality).
@@ -551,6 +566,8 @@ full_data %>%
   count(Quality, Condition, sort = TRUE) %>%
   knitr::kable()
 ```
+
+\newpage
 
 # Modeling & Evaluation
 
@@ -737,9 +754,12 @@ The app leverages the DT package for interactive tables and ggplot2 for high-qua
 
 ------------------------------------------------------------------------
 
+
+
 # Conclusion
 
 This project demonstrates a robust and comprehensive approach to modeling residential property values in Pierce County, WA, combining extensive data cleaning, exploratory analysis, and a range of predictive techniques. Key findings highlight the significant influence of structural attributes (e.g., square footage, quality), geographic variation, and utility access on housing prices. Among the evaluated models, ensemble-based machine learning methods—particularly H2O’s AutoML Stacked Ensemble—offered the best balance between accuracy and interpretability, achieving a MAPE of approximately 10.26%. The integration of this model into a Shiny App enables interactive prediction and data exploration, bridging technical analysis with practical application. While the study delivers strong predictive performance, limitations include reliance on historical sales data and the exclusion of potentially impactful unstructured features (e.g., photos, renovation history). Future work may incorporate geospatial trends over time, integrate external economic indicators, and explore deep learning techniques for further improvement.
+
 
 # References
 

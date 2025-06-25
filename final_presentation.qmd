@@ -1,0 +1,762 @@
+---
+title: "Pierce County Property Valuation"
+author: "B1_Pierce-House-Price"
+format:
+  revealjs:
+    theme: serif  
+    transition: slide
+    slide-number: true
+    toc: false
+    toc-depth: 2
+    incremental: false
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+# Use Case & Problem
+<style>
+.reveal h1 {
+  font-size: 1.5em !important;
+}
+.reveal h2 {
+  font-size: 1.3em !important;
+}
+.reveal h3 {
+  font-size: 1.0em !important;
+}
+</style>
+
+- Predict **residential property prices** in Pierce County, WA  
+- Use **public assessor data**: structure, location, utilities, quality  
+- Support **fair transactions**, **policy**, and **risk assessment**  
+- Build interpretable models for **price prediction**
+
+# Project Objectives
+
+- 🎯 **Target**: Achieve **<10% MAPE** for predictions  
+- 🔍 **Key Drivers**: What most influences sale price?  
+- 🗺️ **Regional Differences**: How does location impact value?  
+- 💎 **Luxury Markers**: What defines high-end properties?  
+
+```{r}
+library(dplyr)
+library(readr)
+library(tidyr)
+library(ggplot2)
+library(tigris)
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(scales)
+library(grid)
+library(GGally)
+library(tidyr)
+library(corrplot)
+
+full_data <- read_csv("data/final_data_incl_land_area.csv", show_col_types = FALSE)
+```
+
+```{r}
+full_data <- full_data %>%
+  dplyr::select(
+    Sale_Date_Raw,
+    Sale_Price_Raw,
+    Square_Feet_Raw,
+    Latitude_Raw,
+    Longitude_Raw,
+    Bedrooms_Raw,
+    Bathrooms_Raw,
+    Stories_Raw,
+    Quality,
+    Condition,
+    Neighborhood,
+    Street_Type,
+    Utility_Water,
+    Utility_Electric,
+    Utility_Sewer,
+    Improved_Vacant_Raw,
+    Year_Built_Raw,
+    Net_Land_Square_Feet_Raw = Net_Land_Square_Feet_Raw
+  ) %>%
+  mutate(
+    Sale_Date_Raw       = as.Date(Sale_Date_Raw),
+    Sale_Price_Raw      = as.numeric(Sale_Price_Raw),
+    Square_Feet_Raw     = as.numeric(Square_Feet_Raw),
+    Latitude_Raw        = as.numeric(Latitude_Raw),
+    Longitude_Raw       = as.numeric(Longitude_Raw),
+    Bedrooms_Raw        = as.numeric(Bedrooms_Raw),
+    Bathrooms_Raw       = as.numeric(Bathrooms_Raw),
+    Stories_Raw         = as.numeric(Stories_Raw),
+    Quality             = as.factor(Quality),
+    Condition           = as.factor(Condition),
+    Neighborhood        = as.factor(Neighborhood),
+    Street_Type         = as.factor(Street_Type),
+    Utility_Water       = as.factor(Utility_Water),
+    Utility_Electric    = as.factor(Utility_Electric),
+    Utility_Sewer       = as.factor(Utility_Sewer),
+    Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
+    Year_Built_Raw      = as.numeric(Year_Built_Raw),
+    Net_Land_Square_Feet_Raw = as.numeric(Net_Land_Square_Feet_Raw)
+  )
+```
+
+# Data Sources
+
+<div style="font-size:85%;">
+
+- Data from **Pierce County Assessor-Treasurer Data Mart**  
+- Contains multiple interconnected tables  
+- Data stored in `.txt` files, pipe (`|`) separated  
+- Includes property, tax, sales, and valuation info  
+- Each file documented with keys, types, descriptions
+
+</div>
+
+# Key Tables Overview
+
+<div style="font-size:85%;">
+
+- **Sale:** Property sales (price, date, deed type)  
+- **Appraisal Account:** Land valuation, utilities  
+- **Improvement:** Building features (sqft, year, stories)  
+- **Improvement Built-As:** Alternate structure info  
+- **Improvement Detail:** Extras (fireplaces, balconies)  
+- **Tax Account:** Assessed values, exemptions  
+- **Land Attribute:** Land descriptors (zoning, utilities)  
+- **Seg Merge:** Parcel history (mergers, splits)  
+- **Tax Description:** Parcel metadata  
+
+</div>
+
+# Data Merging & Cleaning
+<div style="font-size: 0.8em; line-height: 1.2em;">
+
+- Started with 250,000+ records, filtered to ~160,000 for robustness  
+- Parcel Number = main join key; Building ID used for structure features  
+- Steps:  
+  - Joined on Parcel Number across tables  
+  - Selected most recent valid sale per parcel  
+  - Filtered out missing critical values (Bedrooms, Bathrooms, Stories, Year Built)  
+  - Dropped variables with excessive missingness (e.g., View_Quality > 93%)  
+  - Removed outliers: outside 25th–75th percentile price range and unrealistic price/sqft  
+  - Included only residential, improved properties  
+
+</div>
+
+# Feature Construction
+
+<div style="font-size: 0.8em; line-height: 1.2em;">
+
+- Started with 100+ columns; applied top-down feature selection  
+- Focus on interpretability, completeness, predictive relevance  
+- Final features grouped conceptually into:  
+  - Temporal context  
+  - Size & structure  
+  - Location  
+  - Utilities  
+  - Quality & condition  
+  - Improvement  
+
+</div>
+
+# Data Dictionary (1/2)
+
+<div style="font-size: 0.6em; line-height: 1.1em;">
+
+| Variable                   | Description                       | Type    | Unit/Values                  |
+|----------------------------|---------------------------------|---------|-----------------------------|
+| Sale_Price_Raw*            | Final recorded sale price         | Numeric | USD                         |
+| Sale_Date_Raw (TC)         | Date of sale                    | Date    | YYYY-MM-DD                  |
+| Square_Feet_Raw (S)        | Total square footage            | Numeric | Square feet                 |
+| Latitude_Raw (L)           | Latitude coordinate             | Numeric | Decimal degrees             |
+| Longitude_Raw (L)          | Longitude coordinate            | Numeric | Decimal degrees             |
+| Bedrooms_Raw (S)           | Number of bedrooms              | Numeric | Count                       |
+| Bathrooms_Raw (S)          | Number of bathrooms             | Numeric | Count (including partials)  |
+| Stories_Raw (S)            | Number of stories               | Numeric | Count                       |
+
+*TC = Temporal Context, S = Size & Structure, L = Location, U = Utilities, Q = Quality & Condition, I = Improvement  
+*Target variable indicated by *
+
+</div>
+
+# Data Dictionary (2/2)
+
+<div style="font-size: 0.6em; line-height: 1.1em;">
+
+| Variable                   | Description                       | Type    | Unit/Values                  |
+|----------------------------|---------------------------------|---------|-----------------------------|
+| Quality (Q)                | Construction quality rating       | Factor  | 11 levels                   |
+| Condition (Q)              | Overall condition rating          | Factor  | 8 levels                    |
+| Neighborhood (L)           | Neighborhood classification       | Factor  | ~200 levels                 |
+| Street_Type (U)            | Street type classification        | Factor  | 3 levels                    |
+| Utility_Water (U)          | Water utility access              | Factor  | 3 levels                    |
+| Utility_Electric (U)       | Electric utility access           | Factor  | 3 levels                    |
+| Utility_Sewer (U)          | Sewer utility access              | Factor  | 5 levels                    |
+| Improved_Vacant_Raw (I)    | Improvement status                | Factor  | 2 levels                    |
+| Year_Built_Raw (Q)         | Year constructed                 | Numeric | Year                        |
+| Net_Land_Square_Feet_Raw(S)| Net land area                    | Numeric | Square feet                 |
+
+*TC = Temporal Context, S = Size & Structure, L = Location, U = Utilities, Q = Quality & Condition, I = Improvement  
+
+</div>
+
+# Final Dataset Summary
+
+<div style="font-size:0.9em; line-height:1.3;">
+
+- 156,511 records, 18 variables  
+- Residential properties in Pierce County  
+- Key features: sale price & date, size, bedrooms, bathrooms, stories, year built  
+- Location data: latitude, longitude, neighborhood, street type  
+- Quality, condition, and utility access as factors  
+- Cleaned and standardized data  
+- Target: **Sale_Price_Raw**  
+
+</div>
+
+<div style="font-size:0.9em; line-height:1.3;">
+
+# Target Variable: Sale Price
+
+- Highly skewed distribution, \$0 to \$87M  
+- Removed outliers:  
+  - PPS > \$9,000/sqft  
+  - Sale price < \$10,000  
+- Cleaned range: \$10K – \$925K  
+- Median: \$335,500, Mean: \$362,488  
+- Distribution resembles log-normal (see boxplot)  
+
+</div>
+
+# Target Variable: Sale Price
+
+```{r fig-sale-price, fig.cap="Distribution of Sales Price", fig.align="center"}
+ggplot(full_data, aes(y = Sale_Price_Raw, x = "")) +
+  geom_boxplot() +
+  scale_y_log10(labels = scales::dollar) +
+  labs(
+    title = "Distribution of Sales Price",
+    y = "Sales Price",
+    x = NULL
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
+
+<div style="font-size:0.9em; line-height:1.3;">
+
+# Price per Square Foot (PPS)
+
+- Initially distorted by extreme values  
+- Cleaned distribution centers around \$100–\$300/sqft  
+- Critical step to reduce influence of outliers  
+- PPS enables better comparison across properties  
+
+</div>
+
+# Price per Square Foot (PPS)
+
+```{r fig-pps-box, fig.cap="Distribution of Price per Square Foot", fig.align="center"}
+full_data <- full_data %>%
+  mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
+ggplot(full_data, aes(x = Price_Per_SqFt)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Price per Square Foot",
+       x = "Price per SqFt") +
+  theme_minimal(base_size = 15)
+```
+
+<div style="font-size: 0.9em;">
+# Size & Structure
+
+- Most homes: 1,000–4,000 sq ft  
+- Price generally increases with size  
+- Bedrooms: mostly 3–4; Bathrooms: 2–2.5  
+- Diminishing price returns at higher counts  
+- 1–2 story homes dominate; higher stories rare  
+- Square footage most strongly linked to price  
+- Structural variables show strong correlations → potential multicollinearity  
+</div>
+
+# Size & Structure
+
+```{r fig-corr-ss, fig.cap="Correlation Matrix among Key Structural Variables and Sales Price", fig.align="center"}
+numeric_vars <- full_data %>%
+  dplyr::select(Sale_Price_Raw, Square_Feet_Raw, Bedrooms_Raw, Bathrooms_Raw, Stories_Raw) %>%
+  na.omit()
+
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
+
+corrplot(cor_matrix, method = "circle", 
+         type = "upper",       
+         order = "hclust",     
+         addCoef.col = "black",
+         tl.col = "black",     
+         tl.srt = 45,          
+         number.cex = 0.8,     
+         diag = FALSE)         
+```
+
+```{r fig-loc-map, fig.cap="Spatial Distribution of Median Price per Square Foot across Pierce County", fig.align="center", warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
+# 1. Load Pierce County boundary (Washington = '53')
+pierce_county <- counties(state = "53", cb = TRUE) %>%
+  filter(NAME == "Pierce")
+
+# 2. Convert full_data to sf object with WGS84 CRS
+full_data_sf <- full_data %>%
+  mutate(
+    Longitude_Raw = as.numeric(Longitude_Raw),
+    Latitude_Raw = as.numeric(Latitude_Raw)
+  ) %>%
+  filter(!is.na(Longitude_Raw) & !is.na(Latitude_Raw)) %>%
+  st_as_sf(coords = c("Longitude_Raw", "Latitude_Raw"), crs = 4326, remove = FALSE)
+
+# 3. Transform Pierce County CRS to match full_data
+pierce_county <- st_transform(pierce_county, st_crs(full_data_sf))
+
+# 4. Keep only points within Pierce County
+full_data_sf <- full_data_sf[st_within(full_data_sf, pierce_county, sparse = FALSE), ]
+
+# 5. Get bounding box
+lat_range <- st_bbox(pierce_county)[c("ymin", "ymax")]
+lon_range <- st_bbox(pierce_county)[c("xmin", "xmax")]
+
+# 6. Define bin edges
+num_bins <- 80
+lat_bins <- seq(lat_range[1], lat_range[2], length.out = num_bins + 1)
+lon_bins <- seq(lon_range[1], lon_range[2], length.out = num_bins + 1)
+
+# 7. Bin data and compute average price per sqft
+full_data_sf <- full_data_sf %>%
+  mutate(
+    Price_per_sqft = Sale_Price_Raw / Square_Feet_Raw,
+    Lat_bin = cut(Latitude_Raw, breaks = lat_bins, include.lowest = TRUE),
+    Lon_bin = cut(Longitude_Raw, breaks = lon_bins, include.lowest = TRUE)
+  ) %>%
+  filter(Square_Feet_Raw >= 100)   # example threshold: ignore values > 1000
+
+# 8. Aggregate by bin and extract bin boundaries
+heatmap_data <- full_data_sf %>%
+  filter(Square_Feet_Raw >= 100) %>%   # example threshold: ignore values > 1000
+  group_by(Lat_bin, Lon_bin) %>%
+  summarize(
+    Avg_Price_sqft = median(Price_per_sqft, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ymin = as.numeric(sub("\\((.+),.*", "\\1", Lat_bin)),
+    ymax = as.numeric(sub(".*,([^]]*)\\]", "\\1", Lat_bin)),
+    xmin = as.numeric(sub("\\((.+),.*", "\\1", Lon_bin)),
+    xmax = as.numeric(sub(".*,([^]]*)\\]", "\\1", Lon_bin))
+  )
+
+# 9. Plot the heatmap using geom_rect
+# Calculate log breaks evenly spaced along the log scale
+log_min <- min(log(heatmap_data$Avg_Price_sqft), na.rm = TRUE)
+log_max <- max(log(heatmap_data$Avg_Price_sqft), na.rm = TRUE)
+
+# Generate 5 evenly spaced breaks on log scale
+log_breaks <- seq(log_min, log_max, length.out = 5)
+# Convert breaks back to original scale for labeling
+legend_labels <- scales::dollar(exp(log_breaks))
+
+# ggplot() +
+#   geom_sf(data = pierce_county, fill = "white", color = "black", size = 0.6) +
+#   geom_rect(
+#     data = heatmap_data,
+#     aes(
+#       xmin = xmin, xmax = xmax,
+#       ymin = ymin, ymax = ymax,
+#       fill = log(Avg_Price_sqft)  # fill is log-transformed
+#     ),
+#     alpha = 0.85,
+#     color = NA
+#   ) +
+#   scale_fill_viridis_c(
+#     option = "magma",
+#     trans = "identity",           # no further transformation, since fill is already log
+#     breaks = log_breaks,          # breaks evenly spaced in log scale
+#     labels = legend_labels,       # labels in original scale
+#     na.value = "grey90",
+#     name = "Price per sqft"
+#   ) +
+#   coord_sf(xlim = lon_range, ylim = lat_range, expand = FALSE) +
+#   labs(
+#     title = "Median Prices of Houses",
+#     subtitle = "in Pierce County",
+#     x = "Longitude",
+#     y = "Latitude"
+#   ) +
+#   theme_minimal(base_size = 13) +
+#   theme(
+#     plot.title = element_text(face = "bold", size = 18, hjust = 0.5, margin = margin(b = 4)),
+#     plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
+#     axis.title = element_text(face = "italic", size = 12),
+#     axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+#     axis.text.y = element_text(size = 9),
+#     legend.title = element_text(face = "bold", size = 12),
+#     legend.text = element_text(size = 10),
+#     legend.key.height = unit(0.5, "cm"),  # increase legend height here
+#     panel.grid.major = element_line(color = "gray80", size = 0.3),
+#     panel.grid.minor = element_blank()
+#   )
+```
+
+<div style="font-size: 0.9em;">
+
+# Neighborhood
+
+- Median prices per sqft are right-skewed  
+- Most neighborhoods: \$150–\$250/sqft  
+- Top areas (e.g., 042705, 121133) exceed \$330/sqft  
+- High-end areas show low price variance (tight IQR)  
+- Suggests premium and stable pricing zones  
+- Spatial heterogeneity important for modeling  
+</div>
+
+# Neighborhood
+
+```{r fig-neighborhood-eda, fig.cap="Distribution of Price per Square foot in the Top and Bottom 10 Neighborhoods by Median Value", fig.align="center", warning=FALSE}
+# Calculate median price per sqft by neighborhood
+median_prices <- full_data_sf %>%
+  group_by(Neighborhood) %>%
+  summarize(median_price = median(Price_per_sqft, na.rm = TRUE)) %>%
+  arrange(desc(median_price))
+
+# Select top and bottom 10 neighborhoods
+top_bottom_neigh <- bind_rows(
+  head(median_prices, 10),
+  tail(median_prices, 10)
+)
+
+# Filter main data to just those neighborhoods and set factor levels
+filtered_data <- full_data_sf %>%
+  filter(Neighborhood %in% top_bottom_neigh$Neighborhood) %>%
+  mutate(Neighborhood = factor(Neighborhood, levels = top_bottom_neigh$Neighborhood))
+
+# --- Option 1: Boxplot for Top & Bottom 10 Neighborhoods ---
+ggplot(filtered_data, aes(x = Neighborhood, y = Price_per_sqft)) +
+  geom_boxplot(outlier.shape = NA, fill = "#2980B9", color = "#1C2833", alpha = 0.6) +
+  coord_flip(ylim = c(0, 2000)) +
+  labs(
+    title = "Top & Bottom 10 Neighborhoods by Median Price per Sqft",
+    x = "Neighborhood",
+    y = "Price per sqft"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+<div style="font-size: 0.9em;">
+# Utilities & Access
+
+- Missing water/electric linked to higher price per sqft  
+- Likely reflects niche properties or data issues  
+- Sewer access and paved streets boost price  
+- Infrastructure presence = stronger value signals  
+</div>
+
+<div style="font-size: 0.9em;">
+# Quality
+
+- Sale price rises with better quality ratings  
+- “Excellent” homes are clear outliers in price  
+- Low/Fair homes show lower distributions  
+- Strong quality-price relationship evident  
+</div>
+
+# Quality
+
+```{r fig-price-quality, fig.cap="Relationship between Sale Price and Quality", fig.align="center", warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
+full_data$Quality <- factor(full_data$Quality, levels = c(
+  "Low", "Low Plus", "Fair", "Fair Plus",
+  "Average", "Average Plus", "Good", "Good Plus",
+  "Very Good", "Very Good Plus", "Excellent"
+))
+ggplot(full_data, aes(x = Quality, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#3498DB", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Quality", x = "Quality", y = "Sale Price") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+<div style="font-size: 0.9em;">
+
+# Condition
+
+- Uninhabitable homes are priced significantly lower  
+- Other categories overlap in price ranges  
+- Condition appears weaker predictor than quality  
+- Possibly more subjective or inconsistently assessed  
+</div>
+
+# Condition
+
+```{r fig-price-cond, fig.cap="Relationship between Sale Price and Condition", fig.align="center", warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
+full_data$Condition <- factor(full_data$Condition, levels = c(
+  "Uninhabitable", "Very Poor", "Extra Poor", "Poor", 
+  "Fair", "Average", "Good", "NA"
+))
+ggplot(full_data, aes(x = Condition, y = Sale_Price_Raw)) +
+  geom_boxplot(fill = "#27AE60", alpha = 0.6) +
+  scale_y_log10(labels = scales::dollar) +
+  labs(title = "Sale Price by Condition", x = "Condition", y = "Sale Price") +
+  theme_minimal()
+```
+
+# Models
+
+<div style="font-size: 0.9em;">
+
+# Linear Model
+
+- Started with baseline **OLS regression** for benchmarking  
+- Collapsing rare **Neighborhood** levels increased error  
+  - Cleaned OLS: RMSE 109,093 vs. Baseline RMSE 105,459  
+- Emphasis on **MAPE** for interpretability (Baseline: 43.56%)  
+- **Lasso regression** applied for regularization and variable reduction  
+- Initial Lasso (with Bathrooms): RMSE 109,132; MAPE 45.72%
+
+</div>
+
+<div style="font-size: 0.9em;">
+
+# Linear Model
+
+- **Bathrooms** dropped due to multicollinearity with Bedrooms  
+- Improved both OLS and Lasso performance  
+- Best OLS (no Bathrooms):  
+  - RMSE 99,526; MAPE 40.84%  
+- Best Lasso (no Bathrooms):  
+  - RMSE 99,523; MAPE **40.82%**  
+- Conclusion:  
+  - **MAPE minimized** with Lasso + collinearity control  
+  - Compact model, high interpretability, better performance
+
+</div>
+
+# Linear Model
+
+<div style="font-size: 0.7em;">
+
+```{r tbl-model-summary, echo=FALSE}
+library(knitr)
+
+model_summary <- data.frame(
+  Model = c(
+    "Baseline Linear Model",
+    "Cleaned Linear Model (Neighborhood Collapsed)",
+    "Lasso Model",
+    "OLS (No Bathrooms)",
+    "Lasso (No Bathrooms)"
+  ),
+  MAE = c(78515.13, 81236.09, 81247.83, 77365.88, 77344.91),
+  RMSE = c(105459.11, 109092.98, 109132.32, 99526.43, 99523.48),
+  MAPE = c(43.56, 45.72, 45.72, 40.84, 40.82)
+)
+
+kable(model_summary, caption = "Summary of Model Performance Metrics (MAE (\\$), RMSE (\\$), MAPE (\\%))")
+```
+
+</div>
+
+<div style="font-size: 0.9em;">
+
+# H2O AutoML
+
+- Applied [H2O AutoML](w) to cleaned housing dataset  
+- Automatically trained multiple models (GBM, Random Forests, XGBoost, Stacked Ensembles)  
+- Used **10-fold cross-validation** and **early stopping** (based on MAE)  
+- Data split into training and test sets; H2O frames used  
+- Up to **25 models** trained per AutoML run  
+- Evaluation metrics: **MAE**, **RMSE**, **MAPE** on test set  
+
+</div>
+
+<div style="font-size: 0.9em;">
+
+# H2O AutoML
+
+- **Best model**: **Stacked Ensemble** (lowest MAE & MAPE)  
+- Ensemble combines multiple base learners with a metalearner  
+- Demonstrated:
+  - Improved predictive accuracy over single models  
+  - Robustness through stacking and automated tuning  
+- Highlights AutoML’s strength in **model selection** and **ensembling**  
+- Table below presents top 5 model performances on the test set  
+
+</div>
+
+# H2O AutoML
+
+<div style="font-size: 0.7em;">
+
+```{r tbl-model-summary-automl, echo=FALSE}
+automl_results <- data.frame(
+  Model = c(
+    "GBM_1",
+    "GBM_4",
+    "GBM_grid_1",
+    "StackedEnsemble_AllModels_1",
+    "StackedEnsemble_BestOfFamily_1"
+  ),
+  MAE = c(31351.49, 31222.94, 31328.33, 30429.87, 31245.37),
+  RMSE = c(48952.20, 49101.61, 48546.54, 47413.33, 48772.60),
+  MAPE = c(10.67162, 10.53705, 10.73902, 10.25683, 10.46562)
+)
+automl_results <- automl_results %>%
+  arrange(MAE)
+
+kable(automl_results, caption = "AutoML Model Performance Summary (MAE, RMSE in $, MAPE in %)")
+```
+
+</div>
+
+<div class="slide" data-narration-layer="1" style="font-size: 0.7em;">
+
+# Neural Network
+
+- Implemented as a fully connected feedforward neural network using **Keras**  
+- Two hidden layers:
+  - 128 and 32 units
+  - ReLU activations
+  - L2 regularization (λ = 0.01)
+  - Dropout (rate = 0.1 after 1st layer)  
+- Tuned hyperparameters: learning rate, batch size, regularization  
+- Trained with **Adam** optimizer (lr = 0.002) using **MSE loss**  
+- Metrics tracked: MAE, MAPE, and R²  
+- Input data:
+  - One-hot encoding for categorical features  
+  - Standardization for numeric inputs  
+
+</div>
+
+<div class="slide" data-narration-layer="1" style="font-size: 0.7em;">
+
+# Neural Network
+
+- Data split: 80% training / 20% test  
+- Early stopping used (patience = 100), but not triggered  
+- Training stopped at **1000 epochs**  
+- Test set performance:
+  - **RMSE**: 54,254  
+  - **MAE**: 35,744  
+  - **MAPE**: 12.3%  
+  - **R²**: 0.909  
+- Model showed excellent generalization  
+- Stable convergence, major loss drop around epoch 600  
+- See plot below for training and validation loss trends
+
+</div>
+
+# Neural Network
+
+```{r fig-nn-training-loss, fig.cap="Neural Network Training and Validation Loss", fig.align="center", echo=FALSE}
+# load jpg file
+library(jpeg)
+nn_loss <- readJPEG("plots/nn_training.jpg")
+ggplot() +
+  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
+  labs(title = "") +
+  theme_void()
+```
+
+# Cat Boost
+PLACEHOLDER - not finished in PDF
+
+<div class="slide" data-narration-layer="1" style="font-size: 0.7em;">
+
+# XGBoost
+
+- Used [gradient-boosted trees](w) (via **XGBoost**) for regression  
+- Hyperparameter search run on 5% stratified training subset to save time  
+- Dropped high-cardinality categorical variables (>100 levels)  
+- Grid search over:
+  - `eta`, `max_depth`, `subsample`, `colsample_bytree`, `gamma`, `num.trees`
+- Evaluated with **10-fold cross-validation**  
+- Target variable log-transformed for modeling  
+- Final metrics computed after reversing log scale
+
+</div>
+
+<div class="slide" data-narration-layer="1" style="font-size: 0.7em;">
+
+# XGBoost
+
+- **Best configuration**:
+  - `eta` = 0.25  
+  - `max_depth` = 8  
+  - `subsample` = 1.0  
+  - `colsample_bytree` = 1.0  
+  - `gamma` = 0  
+  - `num.trees` = 700  
+- **Cross-validated performance**:
+  - **RMSE**: 592.13  
+  - **MAE**: 319.16  
+  - **MAPE**: 13.91%  
+- XGBoost delivered robust predictions and handled complex feature interactions well
+
+</div>
+
+# XGBoost
+
+```{r fig-xgboost-training-res, fig.cap="XGBoost Results from the CV", fig.align="center", echo=FALSE}
+# load jpg file
+library(jpeg)
+nn_loss <- readJPEG("plots/xgboost_training.jpg")
+ggplot() +
+  annotation_custom(rasterGrob(nn_loss, width = unit(1, "npc"), height = unit(1, "npc"))) +
+  labs(title = "") +
+  theme_void()
+```
+
+# PLACEHOLDER ARASH MODEL
+
+# Model Summary
+
+<div class="slide" data-narration-layer="1" style="font-size: 0.7em;">
+
+```{r tbl-all-summary, echo=FALSE}
+library(knitr)
+
+model_summary <- data.frame(
+  Model = c(
+    "Lasso Model (No Bathrooms)",
+    "Neural Network",
+    "AutoML StackedEnsemble_AllModels_1",
+    "Tuned CatBoost Regression",
+    "XGBoost Random Forest"
+  ),
+  MAE = c(78515.13, 35744 , 30429.87, 0, 73690.11),
+  RMSE = c(105459.11, 54254, 47413.33, 0, 98453.05),
+  MAPE = c(43.56, 12.3, 10.25683, 0, 28.02)
+)
+
+kable(model_summary, caption = "Summary of Model Performance Metrics (MAE (\\$), RMSE (\\$), MAPE (\\%))")
+
+```
+
+</div>
+
+# Deployment
+
+See shiny demo ...
+
+<div class="slide" data-narration-layer="1" style="font-size: 0.8em;">
+
+# Conclusion
+
+- Robust approach combining data cleaning, EDA, and multiple predictive models  
+- Structural features (sqft, quality), location, and utilities significantly influence prices  
+- Ensemble methods (H2O AutoML Stacked Ensemble) performed best with MAPE ~10.26%  
+- Shiny App integrates model for interactive prediction and exploration  
+- Limitations: historical data only, no unstructured features (photos, renovations)  
+- Future work: add geospatial/time trends, economic indicators, and deep learning models  
+
+</div>
