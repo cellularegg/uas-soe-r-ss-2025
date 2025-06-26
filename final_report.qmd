@@ -697,9 +697,9 @@ Performance on the held-out test set was evaluated after transforming prediction
 
 ## Model Selection Summary
 
-Based on the previously explained models, we have decided to implement the best performing one in our Shiny App, i.e., the **AutoML StackedEnsemble_AllModels_1**. The summary of all our models, with their respective MAE, RMSE, and MAPE values Can be found in @table-all-summary. Furthermore, all .qmd source files used throughout the project—including data cleaning, exploratory analysis, and model development—are compiled in [Appendix A](#appendix-a) for reference.
+Based on the previously explained models, we have decided to implement the best performing one in our Shiny App, i.e., the **AutoML StackedEnsemble_AllModels_1**. The summary of all our models, with their respective MAE, RMSE, and MAPE values can be found in @tbl-all-summ. Furthermore, all .qmd source files used throughout the project—including data cleaning, exploratory analysis, and model development are compiled in [Appendix A](#appendix-a) for reference.
 
-```{r tbl-all-summary, echo=FALSE}
+```{r tbl-all-summ, echo=FALSE}
 library(knitr)
 
 model_summary <- data.frame(
@@ -720,7 +720,8 @@ kable(model_summary, caption = "Summary of Model Performance Metrics (MAE (\\$),
 ```
 
 ------------------------------------------------------------------------
-\newpage
+
+
 # Deployment
 
 ## Shiny App
@@ -745,7 +746,8 @@ knitr::include_graphics("edatab.png")
 The app leverages the DT package for interactive tables and ggplot2 for high-quality visualizations. It is designed to be accessible for both technical and non-technical users, supporting scenario analysis and data-driven decision making.
 
 ------------------------------------------------------------------------
-\newpage
+
+
 # Conclusion
 
 This project set out to model and understand residential property values in Pierce County, Washington, with a dual focus on predictive accuracy and interpretability. The **primary quantitative goal** was to achieve a Mean Absolute Percentage Error (MAPE) below 10% for house price prediction. Using a variety of modeling approaches—including linear regression, Lasso regularization, neural networks, and H2O’s AutoML—the final ensemble model achieved a **MAPE of approximately 10.26%**. While this narrowly missed the sub-10% target, it represents a strong level of predictive accuracy for a complex, real-world dataset with high spatial and structural variability.
@@ -757,7 +759,7 @@ Exploratory and model-based analyses helped uncover the **most influential facto
 Interestingly, the **top 1% of homes by price per square foot** were not dominated by traditionally high-quality or well-conditioned homes. Instead, many were categorized as "Average" or "Fair Plus" in quality and most were in "Average" condition. This suggests that location, limited size, and possibly redevelopment potential played a greater role in driving high valuations than luxury features. Some extreme cases—such as high PPS values in properties labeled “Uninhabitable”—point to anomalies, niche markets, or land-driven pricing rather than dwelling quality.
 
 Overall, this project demonstrates that effective property valuation combines robust data preparation, careful modeling, and context-sensitive interpretation. While square footage and quality matter, they do not act in isolation. Regional context, market constraints, and even edge-case anomalies all shape property prices in complex ways. The integration of advanced modeling with exploratory analysis helped surface these patterns and offers a solid foundation for future decision-making tools, such as the deployed Shiny app for interactive price prediction.
-\newpage
+
 # References
 
 -   Pierce County Assessor-Treasurer Data Mart. (2023). Property, tax, and transaction data for Pierce County, Washington. Retrieved from https://epip.co.pierce.wa.us/datamart/
@@ -804,7 +806,7 @@ Overall, this project demonstrates that effective property valuation combines ro
 
 -   Link to Neural Network Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/Neural_Network.qmd>
 
--   Link to AutoML Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/automl.qmd>
+-   Link to AutoML Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/automl.qmd
 
 -   Link to CatBoost Model: <https://github.com/cellularegg/uas-soe-r-ss-2025/blob/main/models/catboost_regressor/catboost_regressor.qmd>
 
