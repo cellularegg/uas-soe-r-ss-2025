@@ -49,34 +49,39 @@ ui <- fluidPage(
             min = min(housing_data$Square_Feet_Raw, na.rm = TRUE),
             max = max(housing_data$Square_Feet_Raw, na.rm = TRUE)
           ),
+          helpText("Total square footage (Square feet)"),
           numericInput("Latitude_Raw", "Latitude",
             value = sample(housing_data$Latitude_Raw, 1),
             min = min(housing_data$Latitude_Raw, na.rm = TRUE),
             max = max(housing_data$Latitude_Raw, na.rm = TRUE),
             step = 0.001
           ),
+          helpText("Latitude coordinate (Decimal degrees)"),
           numericInput("Longitude_Raw", "Longitude",
             value = sample(housing_data$Longitude_Raw, 1),
             min = min(housing_data$Longitude_Raw, na.rm = TRUE),
             max = max(housing_data$Longitude_Raw, na.rm = TRUE),
             step = 0.001
           ),
+          helpText("Longitude coordinate (Decimal degrees)"),
           numericInput("Net_Land_Square_Feet_Raw", "Land Square Feet",
             value = sample(housing_data$Net_Land_Square_Feet_Raw, 1),
             min = min(housing_data$Net_Land_Square_Feet_Raw, na.rm = TRUE),
             max = max(housing_data$Net_Land_Square_Feet_Raw, na.rm = TRUE)
           ),
+          helpText("Net land area in square feet (Square feet)"),
           numericInput("Bedrooms_Raw", "Bedrooms",
             value = sample(housing_data$Bedrooms_Raw, 1),
             min = min(housing_data$Bedrooms_Raw, na.rm = TRUE),
             max = max(housing_data$Bedrooms_Raw, na.rm = TRUE)
           ),
+          helpText("Number of bedrooms (Count)"),
           numericInput("Bathrooms_Raw", "Bathrooms",
             value = sample(housing_data$Bathrooms_Raw, 1),
             min = min(housing_data$Bathrooms_Raw, na.rm = TRUE),
             max = max(housing_data$Bathrooms_Raw, na.rm = TRUE), step = 0.25
           ),
-
+          helpText("Number of bathrooms (Count incl. partials)")
         ),
         column(
           3,
@@ -85,19 +90,23 @@ ui <- fluidPage(
             min = min(housing_data$Stories_Raw, na.rm = TRUE),
             max = max(housing_data$Stories_Raw, na.rm = TRUE), step = 0.5
           ),
+          helpText("Number of stories (Count)"),
           dateInput("Sale_Date_Raw", "Sale Date",
             min = min(as.Date(housing_data$Sale_Date_Raw), na.rm = TRUE),
             max = max(as.Date(housing_data$Sale_Date_Raw), na.rm = TRUE),
             value = sample(as.Date(housing_data$Sale_Date_Raw), 1)
           ),
+          helpText("Date of sale (YYYY-MM-DD)"),
           selectInput("Neighborhood", "Neighborhood", choices = unique(housing_data$Neighborhood)),
+          helpText("Neighborhood classification (~200 levels)"),
           numericInput("Year_Built_Raw", "Year Built",
             value = sample(housing_data$Year_Built_Raw, 1),
             min = min(housing_data$Year_Built_Raw, na.rm = TRUE),
             max = max(housing_data$Year_Built_Raw, na.rm = TRUE)
           ),
+          helpText("Year the building was constructed (Year)"),
           selectInput("Quality", "Quality", choices = quality_levels),
-
+          helpText("Construction quality rating (11 levels)"),
           div(
             style = "display: flex; justify-content: center; align-items: center; height: 100px;",
             actionButton("go", "Predict", style = "font-size: 24px;")
@@ -106,11 +115,17 @@ ui <- fluidPage(
         column(
           3,
           selectInput("Condition", "Condition", choices = condition_levels),
+          helpText("Overall condition rating (8 levels)"),
           selectInput("Street_Type", "Street Type", choices = unique(housing_data$Street_Type)),
+          helpText("Street type classification (3 levels)"),
           selectInput("Utility_Water", "Utility Water", choices = unique(housing_data$Utility_Water)),
+          helpText("Water utility access (3 levels)"),
           selectInput("Utility_Electric", "Utility Electric", choices = unique(housing_data$Utility_Electric)),
+          helpText("Electric utility access (3 levels)"),
           selectInput("Utility_Sewer", "Utility Sewer", choices = unique(housing_data$Utility_Sewer)),
-          checkboxInput("Improved_Vacant_Raw", "Improved (vs Vacant)", value = sample(housing_data$Improved_Vacant_Raw, 1))
+          helpText("Sewer utility access (5 levels)"),
+          checkboxInput("Improved_Vacant_Raw", "Improved (vs Vacant)", value = sample(housing_data$Improved_Vacant_Raw, 1)),
+          helpText("Improvement status (2 levels)")
         ),
         column(
           3,
