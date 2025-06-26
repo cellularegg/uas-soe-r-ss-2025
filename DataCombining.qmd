@@ -10,7 +10,7 @@ library(dplyr)
 library(purrr)
 
 # 1. Define path and column names for each file
-project_root_relative_data_path <- "C:/Users/Sara/Documents/DS Masters/Semester 2/Solution Engineering/R/uas-soe-r-ss-2025/data/raw/"
+project_root_relative_data_path <- "data/raw/"
 
 file_paths_list <- list(
   sale = paste0(project_root_relative_data_path, "sale.txt"),
@@ -231,7 +231,8 @@ full_data <- full_data %>%
     Utility_Electric,
     Utility_Sewer,
     Improved_Vacant_Raw,
-    Year_Built_Raw
+    Year_Built_Raw,
+    Land_Net_Square_Feet_Raw
   ) %>%
   mutate(
     Sale_Date_Raw       = as.Date(Sale_Date_Raw),
@@ -251,7 +252,8 @@ full_data <- full_data %>%
     Utility_Electric    = as.factor(Utility_Electric),
     Utility_Sewer       = as.factor(Utility_Sewer),
     Improved_Vacant_Raw = as.factor(Improved_Vacant_Raw),
-    Year_Built_Raw      = as.numeric(Year_Built_Raw)
+    Year_Built_Raw      = as.numeric(Year_Built_Raw),
+    Land_Net_Square_Feet_Raw = as.numeric(Land_Net_Square_Feet_Raw)
   )
 
 ```
@@ -292,7 +294,8 @@ full_data <- full_data %>%
     Year_Built_Raw  = as.numeric(Year_Built_Raw),
     Square_Feet_Raw = as.numeric(Square_Feet_Raw),
     Latitude_Raw    = as.numeric(Latitude_Raw),
-    Longitude_Raw   = as.numeric(Longitude_Raw)
+    Longitude_Raw   = as.numeric(Longitude_Raw),
+    Land_Net_Square_Feet_Raw = as.numeric(Land_Net_Square_Feet_Raw)
   )
 
 # 3. Drop rows with missing values in crucial fields
@@ -303,7 +306,8 @@ full_data <- full_data %>%
     !is.na(Condition),
     !is.na(Neighborhood),
     !is.na(Latitude_Raw),
-    !is.na(Longitude_Raw)
+    !is.na(Longitude_Raw),
+    !is.na(Land_Net_Square_Feet_Raw)
   )
 
 # 4. Drop rows with any remaining missing values
@@ -313,6 +317,7 @@ full_data <- full_data %>% drop_na()
 ```{r}
 full_data
 ```
+
 ```{r}
 # Count missing values per column
 missing_summary <- sapply(full_data, function(x) sum(is.na(x)))
@@ -324,10 +329,10 @@ missing_pct <- round(missing_summary / nrow(full_data) * 100, 2)
 data.frame(Column = names(missing_pct), Missing = missing_summary, Percent = missing_pct)
 ```
 
-
 # Outlier Removal
 
 ### Sales Price
+
 ```{r}
 library(ggplot2)
 #Create a histogram of the sales price
@@ -343,6 +348,7 @@ ggplot(full_data, aes(x = Sale_Price_Raw)) +
         axis.ticks.y=element_blank())
 
 ```
+
 ```{r}
 Q1 <- quantile(full_data$Sale_Price_Raw, 0.25, na.rm = TRUE)
 Q3 <- quantile(full_data$Sale_Price_Raw, 0.75, na.rm = TRUE)
@@ -356,6 +362,7 @@ full_data_nooutliers <- full_data %>%
 ```{r}
 str(full_data_nooutliers)
 ```
+
 ```{r}
 #Create a histogram of the sales price
 ggplot(full_data_nooutliers, aes(x = Sale_Price_Raw)) +
@@ -370,6 +377,7 @@ ggplot(full_data_nooutliers, aes(x = Sale_Price_Raw)) +
         axis.ticks.y=element_blank())
 
 ```
+
 ```{r}
 summary(full_data$Sale_Price_Raw)
 quantile(full_data$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
@@ -379,7 +387,6 @@ quantile(full_data$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
 summary(full_data_nooutliers$Sale_Price_Raw)
 quantile(full_data_nooutliers$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
 ```
-
 
 ```{r}
 full_data_new <- full_data %>%
@@ -396,19 +403,19 @@ full_data_new <- full_data_new %>%
 
 ```
 
-
 ```{r}
 summary(full_data_new$Sale_Price_Raw)
 quantile(full_data_new$Sale_Price_Raw, probs = seq(0, 0.01, 0.001))
 ```
 
-Minimum price is now $10,000, which removed junk entries like $0 or $100.
+Minimum price is now \$10,000, which removed junk entries like \$0 or \$100.
 
-1st Percentile is ~$30K, still within realistic bounds (possibly small homes or land).
+1st Percentile is \~\$30K, still within realistic bounds (possibly small homes or land).
 
-Upper range (Max $925K) seems reasonable unless you're specifically excluding luxury homes.
+Upper range (Max \$925K) seems reasonable unless you're specifically excluding luxury homes.
 
 Mean and median are much closer now, which means less skew.
+
 ```{r}
 str(full_data_new)
 ```
@@ -427,6 +434,7 @@ ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
     axis.ticks.y = element_blank()
   )
 ```
+
 ```{r}
 ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
@@ -434,6 +442,7 @@ ggplot(full_data_new, aes(x = Sale_Price_Raw)) +
   labs(title = "Histogram of Sale Prices (Log Scale)", x = "Sale Price", y = "Count") +
   theme_minimal(base_size = 15)
 ```
+
 ```{r}
 full_data_new <- full_data_new %>%
   mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
@@ -443,6 +452,7 @@ ggplot(full_data_new, aes(x = Price_Per_SqFt)) +
   labs(title = "Distribution of Price per Square Foot", x = "Price per SqFt") +
   theme_minimal(base_size = 15)
 ```
+
 ```{r}
 full_data_new_sqfeet <- full_data_new %>%
   filter(Square_Feet_Raw > 200) 
@@ -451,6 +461,7 @@ full_data_new_sqfeet <- full_data_new %>%
 ```{r}
 str(full_data_new_sqfeet)
 ```
+
 ```{r}
 full_data_new_sqfeet <- full_data_new_sqfeet %>%
   mutate(Price_Per_SqFt = Sale_Price_Raw / Square_Feet_Raw)
@@ -471,8 +482,13 @@ ggplot(full_data_new_sqfeet, aes(x = Price_Per_SqFt)) +
        x = "Price per SqFt") +
   theme_minimal(base_size = 15)
 ```
+
 ```{r}
 # Save combined CSV
 write_csv(full_data_new_sqfeet, "final_data.csv")
+
 ```
 
+```{r}
+summary(full_data_new_sqfeet$Sale_Price_Raw)
+```
