@@ -114,7 +114,8 @@ This project aims to explore and model residential property values in Pierce Cou
 
 These objectives guide both the technical modeling pipeline and the exploratory data analysis, ensuring actionable and interpretable outcomes.
 
-\newpage
+:::{.pagebreak}
+:::
 
 # Data Description & Preparation
 
@@ -217,7 +218,8 @@ knitr::kable(data_dict, caption = "Data Dictionary for Final Dataset (* indicate
 
 The final dataset consists of 151251 observations and 18 variables, capturing a rich set of residential property attributes in Pierce County. It includes transaction-level data (such as sale price and date), physical characteristics (e.g., square footage, number of bedrooms and bathrooms, number of stories, and year built), locational coordinates (latitude and longitude), categorical ratings for construction quality and condition, and utility access indicators. Neighborhood identifiers and street types provide further spatial context. All variables were cleaned and consistently typed, with numeric measures standardized where appropriate and categorical variables converted to factors with clearly defined levels. The target variable for predictive modeling is Sale_Price_Raw, denoted with an asterisk in the data dictionary.
 
-\newpage
+:::{.pagebreak}
+:::
 
 # Exploratory Data Analysis (EDA)
 
@@ -586,7 +588,8 @@ full_data %>%
   knitr::kable()
 ```
 
-\newpage
+:::{.pagebreak}
+:::
 
 # Modeling & Evaluation
 
@@ -720,7 +723,10 @@ kable(model_summary, caption = "Summary of Model Performance Metrics (MAE (\\$),
 ```
 
 ------------------------------------------------------------------------
-\newpage
+
+:::{.pagebreak}
+:::
+
 # Deployment
 
 ## Shiny App
@@ -745,7 +751,10 @@ knitr::include_graphics("edatab.png")
 The app leverages the DT package for interactive tables and ggplot2 for high-quality visualizations. It is designed to be accessible for both technical and non-technical users, supporting scenario analysis and data-driven decision making.
 
 ------------------------------------------------------------------------
-\newpage
+
+:::{.pagebreak}
+:::
+
 # Conclusion
 
 This project set out to model and understand residential property values in Pierce County, Washington, with a dual focus on predictive accuracy and interpretability. The **primary quantitative goal** was to achieve a Mean Absolute Percentage Error (MAPE) below 10% for house price prediction. Using a variety of modeling approaches—including linear regression, Lasso regularization, neural networks, and H2O’s AutoML—the final ensemble model achieved a **MAPE of approximately 10.26%**. While this narrowly missed the sub-10% target, it represents a strong level of predictive accuracy for a complex, real-world dataset with high spatial and structural variability.
@@ -757,7 +766,10 @@ Exploratory and model-based analyses helped uncover the **most influential facto
 Interestingly, the **top 1% of homes by price per square foot** were not dominated by traditionally high-quality or well-conditioned homes. Instead, many were categorized as "Average" or "Fair Plus" in quality and most were in "Average" condition. This suggests that location, limited size, and possibly redevelopment potential played a greater role in driving high valuations than luxury features. Some extreme cases—such as high PPS values in properties labeled “Uninhabitable”—point to anomalies, niche markets, or land-driven pricing rather than dwelling quality.
 
 Overall, this project demonstrates that effective property valuation combines robust data preparation, careful modeling, and context-sensitive interpretation. While square footage and quality matter, they do not act in isolation. Regional context, market constraints, and even edge-case anomalies all shape property prices in complex ways. The integration of advanced modeling with exploratory analysis helped surface these patterns and offers a solid foundation for future decision-making tools, such as the deployed Shiny app for interactive price prediction.
-\newpage
+
+:::{.pagebreak}
+:::
+
 # References
 
 -   Pierce County Assessor-Treasurer Data Mart. (2023). Property, tax, and transaction data for Pierce County, Washington. Retrieved from https://epip.co.pierce.wa.us/datamart/
