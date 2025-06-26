@@ -25,7 +25,7 @@ execute:
 library(dplyr)
 library(readr)
 
-full_data <- read_csv("../final_data.csv", show_col_types = FALSE)
+full_data <- read_csv("../data/final_data.csv", show_col_types = FALSE)
 ```
 
 
